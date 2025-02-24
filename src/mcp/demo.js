@@ -5,9 +5,19 @@
  * across the different layers of the (AI)PI system.
  */
 require('dotenv').config({ path: __dirname + '/../.env' });
-const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { Layer1Server, Layer2Server, Layer3Server } = require('./index');
 const logger = require('../utils/logger');
+
+// Check if StdioServerTransport is available
+let StdioServerTransport;
+try {
+  const stdioModule = require('@modelcontextprotocol/sdk/server/stdio.js');
+  StdioServerTransport = stdioModule.StdioServerTransport;
+  logger.info('StdioServerTransport loaded successfully');
+} catch (error) {
+  logger.error('StdioServerTransport not available:', error.message);
+  process.exit(1);
+}
 
 /**
  * Main function to run the demo
@@ -62,19 +72,16 @@ async function runLayer1Demo() {
  * Run the Layer 2 (Agentic) MCP server demo
  */
 async function runLayer2Demo() {
-  logger.info('Initializing Layer 1 and Layer 2 MCP Servers');
+  logger.info('Initializing Layer 2 MCP Server');
   
-  // Initialize Layer 1 server (but don't connect it)
-  const layer1Server = new Layer1Server({
-    name: 'aipi-layer1-demo',
-    version: '1.0.0'
-  });
+  // Define Layer 1 endpoint (would be used in a real distributed setup)
+  const layer1Endpoint = 'http://localhost:3001/mcp/events';
   
-  // Initialize Layer 2 server with reference to Layer 1
+  // Initialize Layer 2 server with Layer 1 endpoint
   const layer2Server = new Layer2Server({
     name: 'aipi-layer2-demo',
     version: '1.0.0',
-    layer1Server
+    layer1Endpoint
   });
   
   const transport = new StdioServerTransport();
@@ -89,26 +96,18 @@ async function runLayer2Demo() {
  * Run the Layer 3 (Expert) MCP server demo
  */
 async function runLayer3Demo() {
-  logger.info('Initializing Layer 1, Layer 2, and Layer 3 MCP Servers');
+  logger.info('Initializing Layer 3 MCP Server');
   
-  // Initialize Layer 1 server (but don't connect it)
-  const layer1Server = new Layer1Server({
-    name: 'aipi-layer1-demo',
-    version: '1.0.0'
-  });
+  // Define Layer 1 and Layer 2 endpoints (would be used in a real distributed setup)
+  const layer1Endpoint = 'http://localhost:3001/mcp/events';
+  const layer2Endpoint = 'http://localhost:3002/mcp/events';
   
-  // Initialize Layer 2 server with reference to Layer 1 (but don't connect it)
-  const layer2Server = new Layer2Server({
-    name: 'aipi-layer2-demo',
-    version: '1.0.0',
-    layer1Server
-  });
-  
-  // Initialize Layer 3 server with reference to Layer 2
+  // Initialize Layer 3 server with Layer 2 and Layer 1 endpoints
   const layer3Server = new Layer3Server({
     name: 'aipi-layer3-demo',
     version: '1.0.0',
-    layer2Server
+    layer2Endpoint,
+    layer1Endpoint
   });
   
   const transport = new StdioServerTransport();

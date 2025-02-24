@@ -15,6 +15,26 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Try to load SSE client transport
+let SSEClientTransport;
+try {
+  const sseModule = require('@modelcontextprotocol/sdk/client/sse.js');
+  SSEClientTransport = sseModule.SSEClientTransport;
+  logger.debug('SSEClientTransport loaded successfully for Layer2Server');
+} catch (error) {
+  logger.warn('SSEClientTransport not available for Layer2Server:', error.message);
+}
+
+// Try to load StdioClientTransport as fallback
+let StdioClientTransport;
+try {
+  const stdioModule = require('@modelcontextprotocol/sdk/client/stdio.js');
+  StdioClientTransport = stdioModule.StdioClientTransport;
+  logger.debug('StdioClientTransport loaded successfully for Layer2Server');
+} catch (error) {
+  logger.warn('StdioClientTransport not available for Layer2Server:', error.message);
+}
+
 /**
  * Layer 2 MCP Server
  * Provides agentic tools and resources that combine code execution with LLM capabilities
@@ -23,7 +43,7 @@ class Layer2Server {
   /**
    * Create a new Layer 2 MCP Server
    * @param {Object} options - Server configuration options
-   * @param {Object} options.layer1Server - Reference to Layer 1 server for delegation
+   * @param {string} options.layer1Endpoint - Endpoint URL for Layer 1 API
    */
   constructor(options = {}) {
     this.server = new McpServer({
@@ -31,10 +51,14 @@ class Layer2Server {
       version: options.version || '1.0.0'
     });
     
-    this.layer1Server = options.layer1Server;
+    this.layer1Endpoint = options.layer1Endpoint;
+    this.layer1Client = null;
     
-    if (!this.layer1Server) {
-      logger.warn('Layer 2 server initialized without Layer 1 reference');
+    if (!this.layer1Endpoint) {
+      logger.warn('Layer 2 server initialized without Layer 1 endpoint');
+    } else {
+      logger.info(`Layer 2 server initialized with Layer 1 endpoint: ${this.layer1Endpoint}`);
+      this.initializeLayer1Client();
     }
     
     this.registerDefaultTools();
@@ -42,6 +66,102 @@ class Layer2Server {
     this.registerDefaultPrompts();
     
     logger.info(`Layer 2 MCP Server initialized`);
+  }
+  
+  /**
+   * Initialize the Layer 1 client
+   * @private
+   */
+  async initializeLayer1Client() {
+    try {
+      const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+      
+      // Create Layer 1 client
+      this.layer1Client = new Client(
+        {
+          name: 'layer2-to-layer1-client',
+          version: '1.0.0'
+        },
+        {
+          capabilities: {
+            prompts: {},
+            resources: {},
+            tools: {}
+          }
+        }
+      );
+      
+      // Connect to Layer 1 server
+      let transport;
+      if (SSEClientTransport) {
+        transport = new SSEClientTransport({ endpoint: this.layer1Endpoint });
+      } else if (StdioClientTransport) {
+        transport = new StdioClientTransport({
+          command: 'node',
+          args: ['src/mcp/demo.js', '1'],
+          cwd: process.cwd()
+        });
+      } else {
+        throw new Error('No transport available for Layer 1 client');
+      }
+      
+      await this.layer1Client.connect(transport);
+      logger.info('Layer 2 server connected to Layer 1 server');
+      
+      // List available tools from Layer 1
+      await this.queryLayer1Tools();
+    } catch (error) {
+      logger.error('Error initializing Layer 1 client:', error.message);
+      this.layer1Client = null;
+    }
+  }
+  
+  /**
+   * Query available tools from Layer 1
+   * @returns {Promise<Array>} - List of available tools
+   * @private
+   */
+  async queryLayer1Tools() {
+    if (!this.layer1Client) {
+      logger.warn('Cannot query Layer 1 tools: Layer 1 client not initialized');
+      return [];
+    }
+    
+    try {
+      const tools = await this.layer1Client.listTools();
+      logger.info(`Layer 2 server found ${tools.tools.length} tools in Layer 1`);
+      this.layer1Tools = tools.tools;
+      return tools.tools;
+    } catch (error) {
+      logger.error('Error querying Layer 1 tools:', error.message);
+      return [];
+    }
+  }
+  
+  /**
+   * Call a tool on Layer 1
+   * @param {string} toolName - The name of the tool to call
+   * @param {Object} args - The arguments for the tool
+   * @returns {Promise<Object>} - The result of the tool call
+   * @private
+   */
+  async callLayer1Tool(toolName, args) {
+    if (!this.layer1Client) {
+      throw new Error('Layer 1 client not initialized');
+    }
+    
+    try {
+      logger.debug(`Calling Layer 1 tool: ${toolName}`, { args });
+      const result = await this.layer1Client.callTool({
+        name: toolName,
+        arguments: args
+      });
+      
+      return result;
+    } catch (error) {
+      logger.error(`Error calling Layer 1 tool ${toolName}:`, error.message);
+      throw error;
+    }
   }
   
   /**
@@ -183,7 +303,133 @@ class Layer2Server {
       }
     );
     
+    // Tool that demonstrates using Layer 1 tools
+    this.server.tool(
+      "validate-and-transform",
+      "Validate data and then transform it using Layer 1 tools",
+      {
+        data: z.any(),
+        sourceFormat: z.string(),
+        targetFormat: z.string()
+      },
+      async ({ data, sourceFormat, targetFormat }) => {
+        try {
+          logger.debug('Validating and transforming data', { sourceFormat, targetFormat });
+          
+          if (!this.layer1Client) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "Error: Layer 1 client not initialized. Cannot access Layer 1 tools."
+                }
+              ],
+              isError: true
+            };
+          }
+          
+          // First, validate the data using Layer 1's validate-data tool
+          const validationResult = await this.callLayer1Tool("validate-data", {
+            schema: {
+              type: typeof data === 'string' ? 'string' : 'object',
+              properties: {}
+            },
+            data: data
+          });
+          
+          // Parse the validation result
+          let validationContent = "Validation failed";
+          if (validationResult && validationResult.content && validationResult.content.length > 0) {
+            validationContent = validationResult.content[0].text;
+          }
+          
+          const validationData = JSON.parse(validationContent);
+          
+          if (!validationData.isValid) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Data validation failed: ${JSON.stringify(validationData.errors)}`
+                }
+              ],
+              isError: true
+            };
+          }
+          
+          // Then, transform the data using Layer 1's transform-data tool
+          const transformResult = await this.callLayer1Tool("transform-data", {
+            sourceFormat,
+            targetFormat,
+            data: typeof data === 'string' ? data : JSON.stringify(data)
+          });
+          
+          // Get the transformation result
+          let transformContent = "Transformation failed";
+          if (transformResult && transformResult.content && transformResult.content.length > 0) {
+            transformContent = transformResult.content[0].text;
+          }
+          
+          // Enhance the result with LLM capabilities
+          const enhancedResult = await this.enhanceTransformationResult(transformContent, targetFormat);
+          
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Validation successful. Transformation result:\n\n${enhancedResult}`
+              }
+            ]
+          };
+        } catch (error) {
+          logger.error('Error in validate-and-transform', { error: error.message });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: ${error.message}`
+              }
+            ],
+            isError: true
+          };
+        }
+      }
+    );
+    
     logger.info('Default Layer 2 tools registered');
+  }
+  
+  /**
+   * Enhance a transformation result using LLM capabilities
+   * @param {string} result - The transformation result
+   * @param {string} format - The format of the result
+   * @returns {Promise<string>} - The enhanced result
+   * @private
+   */
+  async enhanceTransformationResult(result, format) {
+    try {
+      // Call OpenAI API to enhance the result
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { 
+            role: "system", 
+            content: `You are a helpful assistant that enhances ${format} data. Make the data more readable and add helpful comments where appropriate.` 
+          },
+          { 
+            role: "user", 
+            content: `Please enhance the following ${format} data:\n\n${result}` 
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 1000
+      });
+      
+      return response.choices[0].message.content;
+    } catch (error) {
+      logger.error('Error enhancing transformation result', { error: error.message });
+      return result; // Return the original result if enhancement fails
+    }
   }
   
   /**

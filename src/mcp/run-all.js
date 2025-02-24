@@ -11,14 +11,17 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const logger = require('../utils/logger');
 const { Layer1Server, Layer2Server, Layer3Server } = require('./index');
 
-// Check if express is available
+// Check if express and related dependencies are available
 let express, cors, SSEServerTransport;
 try {
   express = require('express');
   cors = require('cors');
-  SSEServerTransport = require('@modelcontextprotocol/sdk/server/sse.js').SSEServerTransport;
+  const sseModule = require('@modelcontextprotocol/sdk/server/sse.js');
+  SSEServerTransport = sseModule.SSEServerTransport;
+  logger.info('Express, CORS, and SSEServerTransport loaded successfully');
 } catch (error) {
-  logger.warn('Express, CORS, or SSEServerTransport not available. Will only run stdio servers.', { error: error.message });
+  logger.warn('Express, CORS, or SSEServerTransport not available:', error.message);
+  logger.warn('Will only run stdio servers');
 }
 
 // Port configuration
@@ -105,20 +108,26 @@ async function main() {
       version: '1.0.0'
     });
     
-    // Initialize Layer 2 server with reference to Layer 1
+    // Define endpoints for each layer
+    const layer1Endpoint = `http://localhost:${ports.layer1}/mcp/events`;
+    const layer2Endpoint = `http://localhost:${ports.layer2}/mcp/events`;
+    const layer3Endpoint = `http://localhost:${ports.layer3}/mcp/events`;
+    
+    // Initialize Layer 2 server with Layer 1 endpoint
     logger.info('Initializing Layer 2 MCP Server');
     const layer2Server = new Layer2Server({
       name: 'aipi-layer2-server',
       version: '1.0.0',
-      layer1Server
+      layer1Endpoint
     });
     
-    // Initialize Layer 3 server with reference to Layer 2
+    // Initialize Layer 3 server with Layer 2 and Layer 1 endpoints
     logger.info('Initializing Layer 3 MCP Server');
     const layer3Server = new Layer3Server({
       name: 'aipi-layer3-server',
       version: '1.0.0',
-      layer2Server
+      layer2Endpoint,
+      layer1Endpoint
     });
     
     // Start Express servers for each layer if dependencies are available
