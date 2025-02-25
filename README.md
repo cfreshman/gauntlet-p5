@@ -1,4 +1,4 @@
-# Spotify & Last.fm AIPI Tools
+# Music-AIPI: Spotify & Last.fm AI-Powered Tools
 
 A comprehensive toolkit that combines the Spotify Web API and Last.fm API with AI capabilities to create intelligent music tools.
 
@@ -19,14 +19,16 @@ This toolkit is a layered architecture that provides a range of tools for intera
 - Enhance existing playlists with additional tracks
 - Create personalized music collections based on user preferences and context
 - Analyze listening patterns and music taste
+- Interactive chat interface for natural language music discovery
+- Web client for a modern, user-friendly experience
 - And much more!
 
 ## Installation
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/spotify-lastfm-aipi-tools.git
-   cd spotify-lastfm-aipi-tools
+   git clone https://github.com/yourusername/music-aipi.git
+   cd music-aipi
    ```
 
 2. Install dependencies:
@@ -55,6 +57,31 @@ This toolkit is a layered architecture that provides a range of tools for intera
 npm start
 ```
 
+### Running the CLI Tool
+
+```
+npm run music-discovery
+```
+
+### Running the Chat Interface
+
+```
+npm run music-chat
+```
+
+### Running the Web Client
+
+```
+# Start the development server
+npm run web:dev
+
+# Build the web client for production
+npm run web:build
+
+# Start the web server (after building)
+npm run web:server
+```
+
 ### Running Tests
 
 ```
@@ -74,72 +101,17 @@ node src/tests/playlist-generation-test.js
 node src/tests/music-curation-test.js
 ```
 
-### Example: Searching for Tracks
+## Web Client
 
-```javascript
-const spotifyClient = require('./utils/spotifyClient');
+The web client provides a modern, user-friendly interface for interacting with the Music-AIPI system. It features:
 
-async function searchTracks() {
-  const results = await spotifyClient.search('The Beatles', ['track'], 5);
-  console.log(results.tracks.items);
-}
+- Real-time chat interface with the AI assistant
+- Markdown rendering for rich responses
+- Clickable Spotify links for discovered tracks
+- Responsive design for desktop and mobile
+- Modern, Spotify-inspired dark theme
 
-searchTracks();
-```
-
-### Example: Discovering Similar Tracks with Last.fm
-
-```javascript
-const lastfmClient = require('./utils/lastfmClient');
-
-async function discoverSimilarTracks() {
-  const results = await lastfmClient.getSimilarTracks('Viva La Vida', 'Coldplay', 10);
-  console.log(results.similartracks.track);
-}
-
-discoverSimilarTracks();
-```
-
-### Example: Analyzing a Track
-
-```javascript
-const layer2Client = require('./layer2Client');
-
-async function analyzeTrack() {
-  const analysis = await layer2Client.analyzeTrackFeatures({
-    trackId: '3WMj8moIAXJhHsyLaqIIHI', // "Let It Be" by The Beatles
-    includeTrackDetails: true
-  });
-  console.log(analysis);
-}
-
-analyzeTrack();
-```
-
-### Example: Generating a Playlist
-
-```javascript
-const layer2Client = require('./layer2Client');
-
-async function generatePlaylist() {
-  const playlist = await layer2Client.generatePlaylist({
-    name: 'My Workout Mix',
-    description: 'High-energy tracks for my workout',
-    criteria: {
-      seed_artists: ['4gzpq5DPGxSnKTe4SA8HAU'], // Coldplay
-      seed_genres: ['rock', 'electronic'],
-      target_energy: 0.8,
-      target_danceability: 0.7,
-      min_popularity: 70
-    },
-    userId: 'your_spotify_user_id',
-    trackCount: 20
-  });
-  console.log(playlist);
-}
-
-generatePlaylist();
-```
+To access the web client, start the web server and navigate to `http://localhost:3001` in your browser.
 
 ## API Integration
 

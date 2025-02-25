@@ -1,0 +1,50 @@
+:root {
+  --bg-color: #000000;
+  --text-color: #ffffff;
+  --accent-color: #1db954;
+  --secondary-bg: #121212;
+  --border-color: #333333;
+  --user-msg-bg: #333333;
+  --assistant-msg-bg: #121212;
+  --disabled-color: #555555;
+  --error-color: #ff5555;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Roboto Mono', monospace;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  line-height: 1.6;
+  font-size: 14px;
+  text-transform: lowercase;
+}
+
+a {
+  color: var(--accent-color);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font-family: 'Roboto Mono', monospace;
+  text-transform: lowercase;
+}
+
+input {
+  font-family: 'Roboto Mono', monospace;
+  text-transform: lowercase;
+}
+
+/* Proper nouns exception */
+.proper-noun {
+  text-transform: capitalize;
+} 

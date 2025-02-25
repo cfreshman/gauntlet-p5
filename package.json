@@ -1,7 +1,7 @@
 {
-  "name": "aipi-server",
+  "name": "music-aipi",
   "version": "1.0.0",
-  "description": "An (AI)PI server system with layered architecture",
+  "description": "An intelligent music discovery assistant powered by AI, Spotify, and Last.fm",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -18,14 +18,22 @@
     "mcp:all": "node src/mcp/run-all.js",
     "mcp:test-all": "node src/mcp/test-all.js",
     "music-discovery": "node src/cli/music-discovery-cli.js",
-    "music-chat": "node src/chat/music-discovery-chat.js"
+    "music-chat": "node src/chat/music-discovery-chat.js",
+    "web:dev": "cd web-client && npm run dev",
+    "web:build": "cd web-client && npm run build",
+    "web:serve": "cd web-client && npm run serve",
+    "web:install": "cd web-client && npm install",
+    "web:server": "node src/web-server.js"
   },
   "keywords": [
     "AI",
     "API",
     "LLM",
     "MCP",
-    "OpenAPI"
+    "OpenAPI",
+    "Music",
+    "Spotify",
+    "Last.fm"
   ],
   "author": "",
   "license": "MIT",
@@ -39,6 +47,7 @@
     "express-winston": "^4.2.0",
     "joi": "^17.11.0",
     "openai": "^4.20.1",
+    "socket.io": "^4.7.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
     "uuid": "^9.0.1",
