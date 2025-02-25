@@ -106,6 +106,11 @@ io.use((socket, next) => {
     userId: session.spotifyUserId || 'not authenticated'
   });
   
+  // Check if user is authenticated
+  if (!session.spotifyUserId) {
+    return next(new Error('Authentication required'));
+  }
+  
   next();
 });
 
@@ -171,6 +176,16 @@ app.get('/callback', async (req, res) => {
     
     // Get user profile to get the user ID
     const userProfile = await spotifyClient.getCurrentUserProfile(tempUserId);
+    
+    // Log the full user profile for debugging
+    console.log(`[${new Date().toISOString()}] User profile:`, {
+      id: userProfile.id,
+      uri: userProfile.uri,
+      href: userProfile.href,
+      type: userProfile.type
+    });
+    
+    // Use the numeric ID from the profile
     const userId = userProfile.id;
     
     // Update the tokens with the real user ID
@@ -183,7 +198,7 @@ app.get('/callback', async (req, res) => {
     // Remove the temporary user tokens
     spotifyClient.storeUserTokens(tempUserId, null);
     
-    // Store the tokens in the session
+    // Store the tokens and user ID in the session
     req.session.spotifyTokens = tokens;
     req.session.spotifyUserId = userId;
     
@@ -243,19 +258,7 @@ io.on('connection', async (socket) => {
   try {
     // Get session ID from socket
     const sessionId = socket.request.session?.id;
-    if (!sessionId) {
-      logger.error('No session ID found for socket connection');
-      socket.disconnect();
-      return;
-    }
-    
-    // Get user ID directly from socket session
     const userId = socket.request.session?.spotifyUserId;
-    if (!userId) {
-      logger.error('No user ID found in session:', sessionId);
-      socket.disconnect();
-      return;
-    }
     
     // Store socket connection
     socketsBySession[sessionId] = socket.id;
@@ -301,22 +304,63 @@ io.on('connection', async (socket) => {
     socket.on('playback-command', async (data) => {
       try {
         const { action, params = {} } = data;
-        logger.info('Received playback command:', { action, params, userId });
+        const userId = socket.request.session?.spotifyUserId;
+        console.log('[Playback Command]', {
+          action,
+          params,
+          userId,
+          hasSession: !!socket.request.session,
+          sessionId: socket.request.session?.id,
+          timestamp: new Date().toISOString()
+        });
+
+        if (!userId) {
+          throw new Error('Not authenticated');
+        }
 
         let result;
         switch (action) {
           case 'get-playback-state':
-            result = await spotifyClient.getPlaybackState(null, userId);
+            console.log('[Playback] Requesting state from Spotify for user:', userId);
+            result = await spotifyClient.getPlaybackState(userId);
+            console.log('[Playback] Received state from Spotify:', {
+              hasState: !!result,
+              isPlaying: result?.is_playing,
+              track: result?.item?.name,
+              device: result?.device?.name
+            });
             socket.emit('playback-state', result);
             break;
 
+          case 'get-currently-playing':
+            console.log('[Playback] Requesting currently playing from Spotify for user:', userId);
+            result = await spotifyClient.getCurrentlyPlaying(userId);
+            console.log('[Playback] Received currently playing from Spotify:', {
+              hasTrack: !!result,
+              isPlaying: result?.is_playing,
+              track: result?.item?.name,
+              progress: result?.progress_ms
+            });
+            socket.emit('currently-playing', result);
+            break;
+
           case 'get-devices':
+            console.log('[Playback] Requesting devices from Spotify for user:', userId);
             result = await spotifyClient.getAvailableDevices(userId);
+            console.log('[Playback] Received devices from Spotify:', {
+              deviceCount: result?.devices?.length,
+              devices: result?.devices?.map(d => ({
+                id: d.id,
+                name: d.name,
+                type: d.type,
+                isActive: d.is_active
+              }))
+            });
             socket.emit('playback-devices', result);
             break;
 
           case 'play':
-            await spotifyClient.startResumePlayback(
+            await spotifyClient.startPlayback(
               params.deviceId,
               params.contextUri,
               params.uris,
@@ -343,7 +387,7 @@ io.on('connection', async (socket) => {
             break;
 
           case 'seek':
-            await spotifyClient.seekToPosition(params.positionMs, params.deviceId, userId);
+            await spotifyClient.seekToPosition(parseInt(params.position_ms, 10), params.device_id, userId);
             socket.emit('playback-result', { success: true });
             break;
 
@@ -363,7 +407,7 @@ io.on('connection', async (socket) => {
 
         // After any successful command, get the latest playback state
         if (action !== 'get-playback-state' && action !== 'get-devices') {
-          const newState = await spotifyClient.getPlaybackState(null, userId);
+          const newState = await spotifyClient.getPlaybackState(userId);
           socket.emit('playback-state', newState);
         }
       } catch (error) {
@@ -373,6 +417,38 @@ io.on('connection', async (socket) => {
           userId 
         });
         socket.emit('playback-error', { error: error.message });
+      }
+    });
+
+    // Handle token requests for Web Playback SDK
+    socket.on('get-spotify-token', async () => {
+      try {
+        const userId = socket.request.session?.spotifyUserId;
+        if (!userId) {
+          throw new Error('Not authenticated');
+        }
+
+        // Get user tokens
+        const userTokens = spotifyClient.getUserTokens(userId);
+        if (!userTokens || !userTokens.accessToken) {
+          throw new Error('No access token available');
+        }
+
+        // Check if token needs refresh
+        if (userTokens.expirationTime && Date.now() >= userTokens.expirationTime) {
+          const newTokens = await spotifyClient.refreshAccessToken(userTokens.refreshToken);
+          spotifyClient.storeUserTokens(userId, {
+            ...userTokens,
+            accessToken: newTokens.accessToken,
+            expirationTime: newTokens.expirationTime
+          });
+          socket.emit('spotify-token', newTokens.accessToken);
+        } else {
+          socket.emit('spotify-token', userTokens.accessToken);
+        }
+      } catch (error) {
+        logger.error('Error getting Spotify token:', error.message);
+        socket.emit('spotify-token-error', { error: error.message });
       }
     });
     

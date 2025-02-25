@@ -6,8 +6,6 @@
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import express from 'express';
 import cors from 'cors';
 import { z } from 'zod';
@@ -19,11 +17,16 @@ import { registerPlaylistGenerationTools } from '../layer2/playlistGenerationToo
 import { registerMusicDiscoveryTools } from '../layer2/musicDiscoveryTools.js';
 import { registerLastfmDiscoveryTools } from '../layer2/lastfmDiscoveryTools.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { WebSocketServer } from 'ws';
+import WebSocket from 'ws';
+import { WebSocketServerTransport, WebSocketClientTransport } from '../utils/ws-transport.js';
+import dotenv from 'dotenv';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
-// Initialize OpenAI API client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 /**
  * Layer 2 MCP Server
@@ -36,6 +39,11 @@ class Layer2Server {
    * @param {string} options.layer1Endpoint - Endpoint URL for Layer 1 API
    */
   constructor(options = {}) {
+    // Initialize OpenAI client
+    this.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
     this.server = new McpServer({
       name: options.name || 'aipi-layer2-server',
       version: options.version || '1.0.0'
@@ -44,6 +52,10 @@ class Layer2Server {
     // Create express app
     this.app = express();
     this.app.use(cors());
+    this.app.use(express.json());
+    
+    // Create WebSocket server
+    this.wss = null;
     
     // Track current transport
     this.transport = null;
@@ -95,13 +107,19 @@ class Layer2Server {
         }
       );
       
-      // Create SSE transport to Layer 1
-      const transport = new SSEClientTransport(
-        new URL('http://localhost:3001/mcp/events')
-      );
+      // Create WebSocket connection to Layer 1
+      const ws = new WebSocket('ws://localhost:3011');
       
-      // Connect to Layer 1 server
+      // Wait for connection
+      await new Promise((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+      });
+      
+      // Create transport and connect
+      const transport = new WebSocketClientTransport(ws);
       await this.layer1Client.connect(transport);
+      
       logger.info('Layer 2 server connected to Layer 1 server');
       
       // List available tools from Layer 1
@@ -195,7 +213,7 @@ class Layer2Server {
           }
           
           // Call OpenAI API
-          const response = await openai.chat.completions.create({
+          const response = await this.openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
               { role: "system", content: "You are a helpful assistant that analyzes text." },
@@ -262,7 +280,7 @@ class Layer2Server {
           }
           
           // Call OpenAI API
-          const response = await openai.chat.completions.create({
+          const response = await this.openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
               { role: "system", content: "You are a helpful assistant that enriches data with additional information." },
@@ -403,7 +421,7 @@ class Layer2Server {
   async enhanceTransformationResult(result, format) {
     try {
       // Call OpenAI API to enhance the result
-      const response = await openai.chat.completions.create({
+      const response = await this.openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
           { 
@@ -456,7 +474,7 @@ class Layer2Server {
           // Enhance the documentation with LLM
           const prompt = `Enhance the following documentation with more detailed explanations and examples:\n\n${basicDocs[topic]}`;
           
-          const response = await openai.chat.completions.create({
+          const response = await this.openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
               { role: "system", content: "You are a helpful assistant that enhances technical documentation." },
@@ -568,31 +586,43 @@ class Layer2Server {
   }
 
   setupEndpoints() {
-    // Add SSE endpoint
-    this.app.get('/sse', (req, res) => {
-      this.transport = new SSEServerTransport('/messages', res);
-      this.server.connect(this.transport);
-    });
+    // Create WebSocket server
+    this.wss = new WebSocketServer({ port: 3012 });
 
-    // Add POST endpoint for client-to-server messages
-    this.app.post('/messages', express.json(), (req, res) => {
-      if (this.transport) {
-        this.transport.handlePostMessage(req, res);
-      } else {
-        res.status(400).json({ error: 'No active SSE connection' });
-      }
+    this.wss.on('connection', (ws) => {
+      logger.info('Layer 2: WebSocket connection received');
+
+      // Create transport and connect
+      logger.info('Layer 2: Creating WebSocket transport');
+      this.transport = new WebSocketServerTransport(ws);
+      
+      logger.info('Layer 2: Connecting transport to server');
+      this.server.connect(this.transport);
+
+      // Handle client disconnect
+      ws.on('close', () => {
+        logger.info('Layer 2: Client disconnected');
+        this.transport = null;
+      });
+
+      logger.info('Layer 2: WebSocket connection established');
     });
 
     // Add health check endpoint
     this.app.get('/health', (req, res) => {
-      res.json({ status: 'ok' });
+      res.json({ 
+        status: 'ok',
+        hasTransport: !!this.transport,
+        layer1Connected: this.layer1Client?.isConnected() || false
+      });
     });
   }
 
   async start(port = 3002) {
     return new Promise((resolve) => {
       this.app.listen(port, () => {
-        logger.info(`Layer 2 server listening on port ${port}`);
+        logger.info(`Layer 2 HTTP server listening on port ${port}`);
+        logger.info('Layer 2 WebSocket server listening on port 3012');
         resolve();
       });
     });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, 
   Pause, 
@@ -13,35 +13,46 @@ import { usePlayback } from '../contexts/PlaybackContext';
 import '../styles/playback-controls.css';
 
 const PlaybackControls = () => {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(false);
-  const [volumeError, setVolumeError] = useState(false);
+  const [localProgress, setLocalProgress] = useState(0);
+  const progressTimerRef = useRef(null);
   const { playbackState, playbackDevices, sendPlaybackCommand, handlePlayerExpandToggle } = usePlayback();
 
-  // Update loading state when playbackState changes
+  // Update local progress when playback state changes
   useEffect(() => {
-    if (playbackState !== null) {
-      setLoading(false);
-      // Reset volume error when playback state changes
-      setVolumeError(false);
+    if (playbackState?.progress_ms !== undefined) {
+      setLocalProgress(playbackState.progress_ms);
     }
-  }, [playbackState]);
+  }, [playbackState?.progress_ms]);
+
+  // Handle progress timer
+  useEffect(() => {
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+
+    if (playbackState?.is_playing) {
+      progressTimerRef.current = setInterval(() => {
+        setLocalProgress(prev => {
+          if (prev >= (playbackState?.item?.duration_ms || 0)) {
+            return prev;
+          }
+          return prev + 1000;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+      }
+    };
+  }, [playbackState?.is_playing, playbackState?.item?.duration_ms]);
 
   // Check if the current device supports volume control
   const supportsVolumeControl = () => {
-    // Some devices like iPhones don't support volume control via the API
-    if (!playbackState || !playbackState.device) return false;
-    
-    // If we've had a volume error, assume the device doesn't support it
-    if (volumeError) return false;
-    
-    // Check device type - mobile devices often don't support volume control
-    const deviceType = playbackState.device.type?.toLowerCase() || '';
-    if (deviceType.includes('iphone') || deviceType.includes('ios')) {
-      return false;
-    }
-    
+    if (!playbackState?.device) return false;
     return playbackState.device.supports_volume;
   };
 
@@ -61,31 +72,33 @@ const PlaybackControls = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  if (loading) {
-    return (
-      <div className="playback-controls loading">
-        <div className="playback-status">loading playback status...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="playback-controls error">
-        <div className="playback-status">{error}</div>
-      </div>
-    );
-  }
-
+  // Show minimal controls even when no track is playing
   if (!playbackState || !playbackState.item) {
     return (
       <div className="playback-controls inactive">
-        <div className="playback-status">no active playback</div>
+        <div className="playback-header">
+          <div className="playback-status">no active playback</div>
+          <div className="device-selector">
+            {playbackDevices && playbackDevices.length > 0 && (
+              <select 
+                onChange={(e) => sendPlaybackCommand('transfer', { deviceId: e.target.value })}
+                value=""
+              >
+                <option value="" disabled>select device</option>
+                {playbackDevices.map(d => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} {d.is_active ? '(active)' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
 
-  const { item, is_playing, progress_ms, device } = playbackState;
+  const { item, is_playing, device } = playbackState;
   
   return (
     <div className={`playback-controls ${expanded ? 'expanded' : 'collapsed'}`}>
@@ -165,23 +178,24 @@ const PlaybackControls = () => {
             
             <div className="progress-section">
               <div className="progress-bar-container">
-                <div className="time-elapsed">{formatTime(progress_ms)}</div>
+                <div className="time-elapsed">{formatTime(localProgress)}</div>
                 <div 
                   className="progress-bar"
                   onClick={(e) => {
-                    // Calculate position based on click location
                     const rect = e.currentTarget.getBoundingClientRect();
                     const clickPosition = (e.clientX - rect.left) / rect.width;
-                    const positionMs = Math.floor(clickPosition * item.duration_ms);
+                    const duration = playbackState?.item?.duration_ms || 0;
+                    const positionMs = Math.max(0, Math.min(duration, Math.floor(clickPosition * duration)));
+                    setLocalProgress(positionMs);
                     sendPlaybackCommand('seek', { positionMs });
                   }}
                 >
                   <div 
                     className="progress-bar-fill" 
-                    style={{ width: `${(progress_ms / item.duration_ms) * 100}%` }}
+                    style={{ width: `${((localProgress || 0) / (playbackState?.item?.duration_ms || 1)) * 100}%` }}
                   ></div>
                 </div>
-                <div className="time-total">{formatTime(item.duration_ms)}</div>
+                <div className="time-total">{formatTime(playbackState?.item?.duration_ms)}</div>
               </div>
             </div>
             

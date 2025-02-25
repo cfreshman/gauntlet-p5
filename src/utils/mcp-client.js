@@ -8,13 +8,14 @@
 import logger from './logger.js';
 import toolFormatter from './tool-formatter.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import WebSocket from 'ws';
+import { WebSocketClientTransport } from './ws-transport.js';
 
 // MCP layer server URLs
 const MCP_SERVERS = {
-  layer1: process.env.MCP_LAYER1_URL || 'http://localhost:3001',
-  layer2: process.env.MCP_LAYER2_URL || 'http://localhost:3002',
-  layer3: process.env.MCP_LAYER3_URL || 'http://localhost:3003'
+  layer1: process.env.MCP_LAYER1_URL || 'ws://localhost:3011',
+  layer2: process.env.MCP_LAYER2_URL || 'ws://localhost:3012',
+  layer3: process.env.MCP_LAYER3_URL || 'ws://localhost:3013'
 };
 
 class McpClient {
@@ -93,12 +94,18 @@ class McpClient {
           }
         );
         
-        // create transport
-        const baseUrl = MCP_SERVERS[layer];
-        const transport = new SSEClientTransport(
-          new URL(`${baseUrl}/sse`)
-        );
+        // Create WebSocket connection
+        const ws = new WebSocket(MCP_SERVERS[layer]);
         
+        // Wait for connection
+        await new Promise((resolve, reject) => {
+          ws.on('open', resolve);
+          ws.on('error', reject);
+        });
+        
+        // Create transport
+        const transport = new WebSocketClientTransport(ws);
+
         // Connect with timeout
         await Promise.race([
           this.clients[layer].connect(transport),

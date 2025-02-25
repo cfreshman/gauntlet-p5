@@ -283,7 +283,7 @@ class SpotifyClient {
    */
   async makeRequest(method, endpoint, params = {}, data = null, userId = null) {
     try {
-      // Get access token
+      // Get access token - ALWAYS try to get user token first if userId is provided
       const token = await this.getAccessToken(userId);
 
       // Log the request details for debugging
@@ -295,7 +295,7 @@ class SpotifyClient {
 
       // Prepare URL with query parameters
       const url = new URL(`${API_URL}${endpoint}`);
-      if (method === 'GET' && Object.keys(params).length > 0) {
+      if (Object.keys(params).length > 0) {
         Object.entries(params).forEach(([key, value]) => {
           url.searchParams.append(key, value);
         });
@@ -308,14 +308,27 @@ class SpotifyClient {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        ...(method !== 'GET' && data && { body: JSON.stringify(data) })
+        ...(data && { body: JSON.stringify(data) })
       });
 
-      if (!response.ok) {
-        throw new Error(`Spotify API error (${response.status}): ${await response.text()}`);
+      // Handle 204 No Content responses first
+      if (response.status === 204) {
+        return null;
       }
 
-      return await response.json();
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Spotify API error (${response.status}): ${errorText}`);
+      }
+
+      // Only try to parse JSON for non-204 successful responses
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return await response.json();
+      }
+      
+      // For non-JSON responses, return null
+      return null;
     } catch (error) {
       logger.error('Error making Spotify API request:', error.message);
       throw error;
@@ -369,6 +382,218 @@ class SpotifyClient {
     } catch (error) {
       logger.error('Error getting Spotify client credentials token:', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * Get the current user's Spotify profile
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<Object>} - User profile data
+   */
+  async getCurrentUserProfile(userId) {
+    try {
+      return await this.makeRequest('GET', '/me', {}, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to get user profile: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get the currently playing track (more efficient than full playback state)
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<Object>} - Currently playing track info
+   */
+  async getCurrentlyPlaying(userId) {
+    try {
+      console.log('[SpotifyClient] Getting currently playing track for user:', userId);
+      const response = await this.makeRequest('GET', '/me/player/currently-playing', {}, null, userId);
+      console.log('[SpotifyClient] Currently playing response:', {
+        hasResponse: !!response,
+        isPlaying: response?.is_playing,
+        track: response?.item?.name,
+        progress: response?.progress_ms,
+        timestamp: response?.timestamp
+      });
+      return response;
+    } catch (error) {
+      console.error('[SpotifyClient] Failed to get currently playing:', error.message);
+      throw new Error(`Failed to get currently playing: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get the current playback state
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<Object>} - Current playback state
+   */
+  async getPlaybackState(userId) {
+    try {
+      console.log('[SpotifyClient] Getting playback state for user:', userId);
+      const response = await this.makeRequest('GET', '/me/player', {}, null, userId);
+      console.log('[SpotifyClient] Playback state response:', {
+        hasResponse: !!response,
+        statusCode: response?.status,
+        isPlaying: response?.is_playing,
+        track: response?.item?.name,
+        device: response?.device?.name
+      });
+      return response;
+    } catch (error) {
+      console.error('[SpotifyClient] Failed to get playback state:', error.message);
+      throw new Error(`Failed to get playback state: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get available playback devices
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<Object>} - List of available devices
+   */
+  async getAvailableDevices(userId) {
+    try {
+      console.log('[SpotifyClient] Getting available devices for user:', userId);
+      const response = await this.makeRequest('GET', '/me/player/devices', {}, null, userId);
+      console.log('[SpotifyClient] Devices response:', {
+        hasResponse: !!response,
+        deviceCount: response?.devices?.length,
+        devices: response?.devices?.map(d => ({
+          id: d.id,
+          name: d.name,
+          type: d.type,
+          isActive: d.is_active
+        }))
+      });
+      return response;
+    } catch (error) {
+      console.error('[SpotifyClient] Failed to get available devices:', error.message);
+      throw new Error(`Failed to get available devices: ${error.message}`);
+    }
+  }
+
+  /**
+   * Start/Resume playback
+   * @param {string} deviceId - Device ID to play on
+   * @param {string} contextUri - Spotify URI to play
+   * @param {Array<string>} uris - List of track URIs to play
+   * @param {Object} offset - Offset into context
+   * @param {number} positionMs - Position to start from
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<void>}
+   */
+  async startPlayback(deviceId, contextUri, uris, offset, positionMs, userId) {
+    try {
+      const params = deviceId ? { device_id: deviceId } : {};
+      const data = {
+        ...contextUri && { context_uri: contextUri },
+        ...uris && { uris: uris },
+        ...offset && { offset: offset },
+        ...positionMs && { position_ms: positionMs }
+      };
+      await this.makeRequest('PUT', '/me/player/play', params, data, userId);
+    } catch (error) {
+      throw new Error(`Failed to start playback: ${error.message}`);
+    }
+  }
+
+  /**
+   * Pause playback
+   * @param {string} deviceId - Device ID
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<void>}
+   */
+  async pausePlayback(deviceId, userId) {
+    try {
+      const params = deviceId ? { device_id: deviceId } : {};
+      await this.makeRequest('PUT', '/me/player/pause', params, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to pause playback: ${error.message}`);
+    }
+  }
+
+  /**
+   * Skip to next track
+   * @param {string} deviceId - Device ID
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<void>}
+   */
+  async skipToNext(deviceId, userId) {
+    try {
+      const params = deviceId ? { device_id: deviceId } : {};
+      await this.makeRequest('POST', '/me/player/next', params, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to skip to next track: ${error.message}`);
+    }
+  }
+
+  /**
+   * Skip to previous track
+   * @param {string} deviceId - Device ID
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<void>}
+   */
+  async skipToPrevious(deviceId, userId) {
+    try {
+      const params = deviceId ? { device_id: deviceId } : {};
+      await this.makeRequest('POST', '/me/player/previous', params, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to skip to previous track: ${error.message}`);
+    }
+  }
+
+  /**
+   * Set playback volume
+   * @param {number} volumePercent - Volume percentage (0-100)
+   * @param {string} deviceId - Device ID
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<void>}
+   */
+  async setPlaybackVolume(volumePercent, deviceId, userId) {
+    try {
+      const params = {
+        volume_percent: volumePercent,
+        ...deviceId && { device_id: deviceId }
+      };
+      await this.makeRequest('PUT', '/me/player/volume', params, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to set volume: ${error.message}`);
+    }
+  }
+
+  /**
+   * Transfer playback to another device
+   * @param {string} deviceId - Device ID to transfer to
+   * @param {boolean} play - Whether to ensure playback happens on new device
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<void>}
+   */
+  async transferPlayback(deviceId, play, userId) {
+    try {
+      const data = {
+        device_ids: [deviceId],
+        play: play
+      };
+      await this.makeRequest('PUT', '/me/player', {}, data, userId);
+    } catch (error) {
+      throw new Error(`Failed to transfer playback: ${error.message}`);
+    }
+  }
+
+  /**
+   * Seek to position in currently playing track
+   * @param {number} positionMs - Position in milliseconds
+   * @param {string} deviceId - Device ID
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<void>}
+   */
+  async seekToPosition(positionMs, deviceId, userId) {
+    try {
+      const params = {
+        position_ms: positionMs,
+        ...deviceId && { device_id: deviceId }
+      };
+      await this.makeRequest('PUT', '/me/player/seek', params, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to seek to position: ${error.message}`);
     }
   }
 }

@@ -20,64 +20,45 @@ export const AppProvider = ({ children }) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
   }, [messages]);
 
-  // Check auth on mount
-  useEffect(() => {
-    checkAuthStatus();
-  }, []);
-
-  const checkAuthStatus = async () => {
-    try {
-      const response = await fetch('/api/auth/status', {
-        credentials: 'include'
-      });
-      const data = await response.json();
-      setIsAuthenticated(data.authenticated);
-      
-      if (data.authenticated) {
-        initializeSocket();
-      }
-    } catch (error) {
-      console.error('Error checking auth status:', error);
-    }
-  };
-
   const initializeSocket = () => {
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
+    if (socketRef.current?.connected) {
+      console.log('[AppContext] Socket already connected:', socketRef.current.id);
+      return;
     }
+
+    console.log('[AppContext] Initializing socket connection');
     
-    socketRef.current = io('http://localhost:3000', {
+    // Initialize socket connection with auth error handling
+    const socket = io('http://localhost:3000', {
       withCredentials: true,
       transports: ['websocket', 'polling'],
       path: '/socket.io',
       reconnection: true,
-      reconnectionAttempts: 3,
+      reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       timeout: 20000,
       autoConnect: false
     });
 
-    socketRef.current.on('connect', () => {
+    socket.on('connect', () => {
+      console.log('[AppContext] Socket connected:', socket.id);
       setConnected(true);
     });
     
-    socketRef.current.on('connect_error', (error) => {
-      setConnected(false);
-      if (error.message.includes('session')) {
+    socket.on('connect_error', (error) => {
+      console.error('[AppContext] Socket connection error:', error.message);
+      if (error.message === 'Authentication required') {
         setIsAuthenticated(false);
-        checkAuthStatus();
+        // Don't redirect here - let the UI handle it
       }
     });
-    
-    socketRef.current.on('disconnect', (reason) => {
+
+    socket.on('disconnect', (reason) => {
+      console.log('[AppContext] Socket disconnected:', reason);
       setConnected(false);
-      if (reason === 'io server disconnect') {
-        socketRef.current.connect();
-      }
     });
     
-    socketRef.current.on('assistant_response', (response) => {
+    socket.on('assistant_response', (response) => {
       if (response.type === 'error') {
         setMessages(prev => [...prev, { role: 'assistant', content: response.content.text }]);
       } else {
@@ -86,22 +67,73 @@ export const AppProvider = ({ children }) => {
       setIsLoading(false);
     });
 
-    socketRef.current.on('auth-success', () => {
+    socket.on('auth-success', () => {
+      console.log('[AppContext] Authentication successful');
       setIsAuthenticated(true);
     });
-    
-    socketRef.current.connect();
+
+    socketRef.current = socket;
+  };
+
+  // Check auth on mount and initialize socket if authenticated
+  const checkAuthStatus = async () => {
+    try {
+      console.log('[AppContext] Checking auth status');
+      const response = await fetch('/api/auth/status', {
+        credentials: 'include'
+      });
+      const data = await response.json();
+      
+      console.log('[AppContext] Auth status:', data);
+      setIsAuthenticated(data.authenticated);
+      
+      if (data.authenticated) {
+        initializeSocket();
+        if (socketRef.current && !socketRef.current.connected) {
+          console.log('[AppContext] Connecting socket after auth check');
+          socketRef.current.connect();
+        }
+      } else if (socketRef.current) {
+        console.log('[AppContext] Disconnecting socket - not authenticated');
+        socketRef.current.disconnect();
+      }
+    } catch (error) {
+      console.error('[AppContext] Error checking auth status:', error);
+    }
+  };
+
+  // Check auth on mount
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  // Handle authentication changes
+  useEffect(() => {
+    if (isAuthenticated) {
+      console.log('[AppContext] Authenticated, ensuring socket connection');
+      initializeSocket();
+      if (socketRef.current && !socketRef.current.connected) {
+        socketRef.current.connect();
+      }
+    } else if (socketRef.current) {
+      console.log('[AppContext] Not authenticated, disconnecting socket');
+      socketRef.current.disconnect();
+    }
 
     return () => {
       if (socketRef.current) {
+        console.log('[AppContext] Cleaning up socket connection');
         socketRef.current.disconnect();
-        socketRef.current = null;
       }
     };
-  };
+  }, [isAuthenticated]);
 
   const sendMessage = (message) => {
-    if (message.trim() === '' || !socketRef.current) return;
+    if (message.trim() === '') return;
+    if (!socketRef.current?.connected) {
+      console.error('[AppContext] Cannot send message: Socket not connected');
+      return;
+    }
     
     const userMessage = { role: 'user', content: message };
     setMessages(prev => [...prev, userMessage]);

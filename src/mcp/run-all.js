@@ -10,9 +10,10 @@ import logger from '../utils/logger.js';
 import { Layer1Server, Layer2Server, Layer3Server } from './index.js';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
+import path from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: __dirname + '/../.env' });
+dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 /**
  * Create and start an MCP server for a specific layer

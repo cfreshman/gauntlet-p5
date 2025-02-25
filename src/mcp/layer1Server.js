@@ -6,7 +6,6 @@
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import express from 'express';
 import cors from 'cors';
 import { z } from 'zod';
@@ -14,6 +13,8 @@ import logger from '../utils/logger.js';
 import { MCPBoundaryError } from '../utils/errors.js';
 import { registerSpotifyTools } from '../layer1/spotifyTools.js';
 import { registerLastFmTools } from '../layer1/lastFmTools.js';
+import { WebSocketServer } from 'ws';
+import { WebSocketServerTransport } from '../utils/ws-transport.js';
 
 /**
  * Layer 1 MCP Server
@@ -263,24 +264,34 @@ class Layer1Server {
    * Set up endpoints for the server
    */
   setupEndpoints() {
-    // Add SSE endpoint
-    this.app.get('/sse', (req, res) => {
-      this.transport = new SSEServerTransport('/messages', res);
-      this.server.connect(this.transport);
-    });
+    // Create WebSocket server
+    this.wss = new WebSocketServer({ port: 3011 });
 
-    // Add POST endpoint for client-to-server messages
-    this.app.post('/messages', express.json(), (req, res) => {
-      if (this.transport) {
-        this.transport.handlePostMessage(req, res);
-      } else {
-        res.status(400).json({ error: 'No active SSE connection' });
-      }
+    this.wss.on('connection', (ws) => {
+      logger.info('Layer 1: WebSocket connection received');
+
+      // Create transport and connect
+      logger.info('Layer 1: Creating WebSocket transport');
+      this.transport = new WebSocketServerTransport(ws);
+      
+      logger.info('Layer 1: Connecting transport to server');
+      this.server.connect(this.transport);
+
+      // Handle client disconnect
+      ws.on('close', () => {
+        logger.info('Layer 1: Client disconnected');
+        this.transport = null;
+      });
+
+      logger.info('Layer 1: WebSocket connection established');
     });
 
     // Add health check endpoint
     this.app.get('/health', (req, res) => {
-      res.json({ status: 'ok' });
+      res.json({ 
+        status: 'ok',
+        hasTransport: !!this.transport
+      });
     });
   }
   
@@ -292,7 +303,8 @@ class Layer1Server {
   async start(port = 3001) {
     return new Promise((resolve) => {
       this.app.listen(port, () => {
-        logger.info(`Layer 1 server listening on port ${port}`);
+        logger.info(`Layer 1 HTTP server listening on port ${port}`);
+        logger.info('Layer 1 WebSocket server listening on port 3011');
         resolve();
       });
     });

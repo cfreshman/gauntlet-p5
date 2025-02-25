@@ -8,8 +8,8 @@ import { PlaybackProvider, usePlayback } from './contexts/PlaybackContext';
 import './styles/app.css';
 
 const AppContent = () => {
-  const { messages, isLoading, isAuthenticated, sendMessage, clearHistory, setIsAuthenticated, socketRef } = useApp();
-  const { playbackState, playerExpanded } = usePlayback();
+  const { isAuthenticated, setIsAuthenticated } = useApp();
+  const { playbackState } = usePlayback();
   const appRef = useRef(null);
 
   // Update background when playback state changes
@@ -28,20 +28,27 @@ const AppContent = () => {
   }
 
   return (
-    <div className="app" ref={appRef} style={{ '--album-art': 'none' }}>
+    <div className="app" ref={appRef}>
       <Header />
       <main className="main-content">
         <ChatInterface />
       </main>
-      <footer className="app-footer">
-        {playbackState && <PlaybackControls />}
-      </footer>
+      <PlaybackControls />
     </div>
   );
 };
 
 const AppWithProviders = () => {
   const { socketRef } = useApp();
+
+  // Add debug logging for socket initialization
+  console.log('[App] Initializing PlaybackProvider with socket:', {
+    hasSocket: !!socketRef?.current,
+    socketId: socketRef?.current?.id,
+    isConnected: socketRef?.current?.connected,
+    timestamp: new Date().toISOString()
+  });
+
   return (
     <PlaybackProvider socket={socketRef?.current}>
       <AppContent />
