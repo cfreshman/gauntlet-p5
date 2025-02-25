@@ -2,33 +2,36 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
+  padding: var(--space-md);
   width: 100%;
   max-width: 800px;
   margin: 0 auto;
-  background: var(--primary-bg);
   border-bottom: 1px solid var(--border-color);
+  border-left: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
 }
 
 .header h1 {
   margin: 0;
-  font-size: 1rem;
-  font-weight: normal;
-  font-family: monospace;
-  color: var(--primary-text);
+  font-size: 15px;
+  font-weight: 500;
+  font-family: 'Roboto Mono', monospace;
+  color: var(--text-color);
+  letter-spacing: -0.3px;
 }
 
 .clear-button {
   background: none;
   border: none;
-  padding: 8px;
+  padding: var(--space-sm);
   cursor: pointer;
-  color: var(--primary-text);
+  color: var(--text-color);
   opacity: 0.6;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
+  transition: all 0.2s ease;
 }
 
 .clear-button:hover {
@@ -40,56 +43,62 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: var(--space-md);
 }
 
 .title {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
 }
 
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-sm);
 }
 
 .connection-status {
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 12px;
-  background-color: var(--secondary-bg);
+  font-size: 11px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
 }
 
 .connection-status.connected {
   color: var(--accent-color);
+  border-color: var(--accent-color);
 }
 
 .connection-status.disconnected {
   color: var(--error-color);
+  border-color: var(--error-color);
 }
 
-.debug-toggle, .clear-history, .show-tools {
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 12px;
-  background-color: var(--secondary-bg);
+.debug-toggle,
+.clear-history,
+.show-tools {
+  font-size: 11px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.3);
   color: var(--text-color);
-  border: none;
+  border: 1px solid var(--border-color);
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.debug-toggle:hover,
+.clear-history:hover,
+.show-tools:hover {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  background: rgba(255, 102, 51, 0.1);
 }
 
 .debug-toggle.active {
   background-color: var(--accent-color);
   color: black;
-}
-
-.clear-history:hover {
-  background-color: var(--error-color);
-  color: black;
-}
-
-.show-tools:hover {
-  background-color: var(--accent-color);
-  color: black;
+  border-color: var(--accent-color);
 } 

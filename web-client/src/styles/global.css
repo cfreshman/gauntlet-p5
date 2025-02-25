@@ -1,13 +1,25 @@
 :root {
   --bg-color: #000000;
   --text-color: #ffffff;
-  --accent-color: #1db954;
+  --accent-color: #ff6633;
   --secondary-bg: #121212;
-  --border-color: #333333;
-  --user-msg-bg: #333333;
-  --assistant-msg-bg: #121212;
-  --disabled-color: #555555;
+  --border-color: rgba(255, 102, 51, 0.4);
+  --user-msg-bg: rgba(255, 255, 255, 0.05);
+  --assistant-msg-bg: rgba(0, 0, 0, 0.3);
+  --disabled-color: #666666;
   --error-color: #ff5555;
+  
+  /* Spacing system */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  
+  /* Border radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
 }
 
 * {
@@ -20,25 +32,72 @@ body {
   font-family: 'Roboto Mono', monospace;
   background-color: var(--bg-color);
   color: var(--text-color);
-  line-height: 1.6;
-  font-size: 14px;
+  line-height: 1.5;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 a {
   color: var(--accent-color);
   text-decoration: none;
+  transition: opacity 0.2s ease;
 }
 
 a:hover {
-  text-decoration: underline;
+  opacity: 0.8;
 }
 
 button {
   font-family: 'Roboto Mono', monospace;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  transition: opacity 0.2s ease;
 }
 
-input {
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+input, textarea {
   font-family: 'Roboto Mono', monospace;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  width: 100%;
+  resize: none;
+}
+
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--disabled-color);
+  opacity: 0.8;
+}
+
+select {
+  font-family: 'Roboto Mono', monospace;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--accent-color);
 }
 
 /* Proper nouns exception - no longer needed */

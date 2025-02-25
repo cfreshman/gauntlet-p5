@@ -186,28 +186,31 @@
 }
 
 .progress-bar {
-  flex-grow: 1;
+  -webkit-appearance: none;
+  width: 100%;
   height: 4px;
-  background-color: var(--border-color);
-  border-radius: 2px;
-  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--border-color);
+  outline: none;
   cursor: pointer;
-  position: relative;
-  transition: height 0.2s;
 }
 
-.progress-bar:hover {
-  height: 6px;
+.progress-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-color);
+  cursor: pointer;
 }
 
-.progress-bar:hover::after {
-  content: '';
-  position: absolute;
-  top: -8px;
-  bottom: -8px;
-  left: 0;
-  right: 0;
-  background: transparent;
+.progress-bar::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-color);
+  cursor: pointer;
+  border: none;
 }
 
 .progress-bar-fill {
@@ -224,23 +227,23 @@
 }
 
 .control-button {
-  background-color: transparent;
-  color: var(--text-color);
+  background: none;
   border: none;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
+  color: var(--text-color);
+  padding: var(--space-sm);
   cursor: pointer;
-  transition: all 0.2s;
+  border-radius: var(--radius-full);
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
 }
 
-.control-button:hover {
-  color: var(--accent-color);
-  transform: scale(1.1);
+.control-button:disabled {
+  color: var(--disabled-color);
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .control-button.play-pause {
@@ -251,7 +254,7 @@
 }
 
 .control-button.play-pause:hover {
-  background-color: #1ed760;
+  background-color: #ff7f4d;
   transform: scale(1.05);
   color: black;
 }
@@ -290,21 +293,25 @@
   color: var(--disabled-color);
 }
 
-.device-selector {
-  flex: 0 0 auto;
-  min-width: 120px;
-  max-width: 180px;
+select {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  color: var(--text-color);
+  padding: var(--space-sm) var(--space-md);
+  font-family: 'Roboto Mono', monospace;
+  font-size: 13px;
+  cursor: pointer;
 }
 
-.device-selector select {
-  width: 100%;
-  background-color: var(--bg-color);
-  color: var(--text-color);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 5px;
-  font-family: 'Roboto Mono', monospace;
-  font-size: 12px;
+select:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .volume-control {
@@ -323,42 +330,31 @@
 }
 
 .volume-slider {
-  flex-grow: 1;
-  height: 4px;
   -webkit-appearance: none;
-  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: var(--radius-full);
   background: var(--border-color);
-  border-radius: 2px;
   outline: none;
+  cursor: pointer;
 }
 
 .volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  appearance: none;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: var(--accent-color);
+  background: var(--text-color);
   cursor: pointer;
 }
 
 .volume-slider::-moz-range-thumb {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: var(--accent-color);
+  background: var(--text-color);
   cursor: pointer;
   border: none;
-}
-
-.volume-slider:hover::-webkit-slider-thumb {
-  width: 12px;
-  height: 12px;
-}
-
-.volume-slider:hover::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
 }
 
 .playback-mini-controls {
