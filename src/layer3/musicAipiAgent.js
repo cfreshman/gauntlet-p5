@@ -1,8 +1,8 @@
 /**
- * Music AIPI Agent (Layer 3)
+ * Generic AIPI Agent (Layer 3)
  * 
- * This module provides an enhanced process-query tool that can handle all music-related requests,
- * including calling other tools and ensuring Spotify links are used.
+ * This module provides a generic conversational agent that can handle any request
+ * by dynamically discovering and using available tools.
  */
 
 const logger = require('../utils/logger');
@@ -16,17 +16,14 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Define an empty chat history array if it doesn't exist in the global scope
-const chatHistory = [];
-
 /**
- * Register the enhanced process-query tool with the server
+ * Register the generic agent with the server
  * @param {object} server - The server instance to register tools with
  * @param {object} layer1Client - The Layer 1 client instance (may be null initially)
  * @param {object} layer2Client - The Layer 2 client instance (may be null initially)
  */
 function registerMusicAipiAgent(server, layer1Client, layer2Client) {
-  logger.info('Registering Music AIPI Agent (Layer 3)...');
+  logger.info('Registering Generic AIPI Agent (Layer 3)...');
 
   // Debug the client status
   logger.info('Initial Layer 1 client status:', { 
@@ -50,42 +47,52 @@ function registerMusicAipiAgent(server, layer1Client, layer2Client) {
     logger.warn('Could not unregister existing process-query tool:', error.message);
   }
 
-  // Register our enhanced version of the process-query tool
+  // Register our generic agent tool
   server.tool(
     'music-aipi-agent',
-    'Process a natural language query and generate a response with music discovery capabilities',
+    'Process a natural language query and generate a response using available tools',
     {
       query: z.string().describe('The user query to process'),
       context: z.string().optional().describe('Additional context information'),
-      responseFormat: z.enum(['concise', 'detailed', 'technical', 'simple']).optional().describe('Format of the response')
+      responseFormat: z.enum(['concise', 'detailed', 'technical', 'simple']).optional().describe('Format of the response'),
+      conversationHistory: z.string().optional().describe('JSON string of conversation history from the front end')
     },
-    async ({ query, context = '', responseFormat = 'detailed' }) => {
+    async ({ query, context = '', responseFormat = 'detailed', conversationHistory = '' }) => {
       try {
-        logger.debug('Processing music query', { queryLength: query.length, responseFormat });
+        logger.debug('Processing user query', { queryLength: query.length, responseFormat });
         
         // Initialize MCP client if not already initialized
         if (!mcpClient.initialized) {
-          logger.info('Initializing MCP client from music-aipi-agent...');
+          logger.info('Initializing MCP client from generic agent...');
           await mcpClient.initialize();
         }
         
+        // Parse conversation history if provided
+        let parsedHistory = [];
+        if (conversationHistory) {
+          try {
+            parsedHistory = JSON.parse(conversationHistory);
+            logger.info('Using conversation history from front end', { historyLength: parsedHistory.length });
+          } catch (error) {
+            logger.warn('Failed to parse conversation history', { error: error.message });
+          }
+        }
+        
         // Log the client status
-        logger.info('Using MCP client for music-aipi-agent:', {
+        logger.info('Using MCP client for generic agent:', {
           layer1ClientAvailable: mcpClient.connected.layer1,
           layer2ClientAvailable: mcpClient.connected.layer2,
           layer3ClientAvailable: mcpClient.connected.layer3
         });
         
-        // Determine if this is a music discovery request
-        const isMusicDiscovery = await isMusicDiscoveryRequest(query);
-        
-        if (isMusicDiscovery) {
-          logger.debug('Handling as music discovery request');
-          return await handleMusicDiscovery(query, mcpClient);
-        } else {
-          logger.debug('Handling as general query');
-          return await handleGeneralQuery(query, context, responseFormat);
-        }
+        // Handle the query using the generic approach
+        return await handleQuery({ 
+          query, 
+          context, 
+          responseFormat, 
+          chatHistory: parsedHistory, 
+          mcpClient 
+        });
       } catch (error) {
         logger.error('Error processing query', { error: error.message });
         return {
@@ -101,832 +108,391 @@ function registerMusicAipiAgent(server, layer1Client, layer2Client) {
     }
   );
 
-  logger.info('Music AIPI Agent registered successfully');
+  logger.info('Generic AIPI Agent registered successfully');
 }
 
 /**
- * Determine if a query is a music discovery request
- * @param {string} query - The user query
- * @returns {Promise<boolean>} - Whether the query is a music discovery request
- */
-async function isMusicDiscoveryRequest(query) {
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { 
-          role: "system", 
-          content: "You are a classifier that determines if a query is related to music discovery. Respond with 'true' or 'false'."
-        },
-        { 
-          role: "user", 
-          content: `Is this query related to music discovery, finding songs, artists, or playlists? Query: "${query}"`
-        }
-      ],
-      temperature: 0.1,
-      max_tokens: 10
-    });
-    
-    const result = response.choices[0].message.content.trim().toLowerCase();
-    return result === 'true';
-  } catch (error) {
-    logger.error('Error classifying query', { error: error.message });
-    // Default to false if classification fails
-    return false;
-  }
-}
-
-/**
- * Handle a music discovery request
- * @param {string} query - The user query
- * @param {object} mcpClient - The MCP client
+ * Handle a user query using available tools
+ * @param {object} params - Parameters for handling the query
  * @returns {Promise<object>} - The response
  */
-async function handleMusicDiscovery(query, mcpClient) {
+async function handleQuery(params) {
+  const { query, context = '', responseFormat = 'detailed', chatHistory = [], mcpClient } = params;
+  
   try {
-    // Create a call tree for debugging
-    const callTree = {
-      initialQuery: query,
-      timestamp: new Date().toISOString(),
-      steps: []
-    };
+    logger.info(`Processing user query: "${query}"`);
     
-    // Add detailed logging about client state during execution
-    logger.info('Music discovery request received', { 
-      query: query.substring(0, 50) + (query.length > 50 ? '...' : ''),
-      layer1ClientAvailable: mcpClient.connected.layer1,
-      layer2ClientAvailable: mcpClient.connected.layer2
-    });
-    
-    // Add client state to call tree
-    callTree.steps.push({
-      step: 'initialize',
-      clientState: {
-        layer1Available: mcpClient.connected.layer1,
-        layer2Available: mcpClient.connected.layer2,
-        layer3Available: mcpClient.connected.layer3
-      },
-      timestamp: new Date().toISOString()
-    });
-    
-    // Check if clients are available
-    if (!mcpClient.connected.layer1 && !mcpClient.connected.layer2) {
-      logger.warn('Neither Layer 1 nor Layer 2 clients are available for music discovery');
-      
-      // Add client unavailable step to call tree
-      callTree.steps.push({
-        step: 'client_unavailable',
-        error: 'Neither Layer 1 nor Layer 2 clients are available for music discovery',
-        timestamp: new Date().toISOString()
-      });
-      
-      // Store the call tree in global scope for debugging
-      global.lastCallTree = callTree;
-      
-      return await handleGeneralQuery(query, 'Note: Music discovery features are limited because the necessary clients are not available.', 'detailed');
-    }
-
-    // Determine which tool to use for the music discovery request
-    callTree.steps.push({
-      step: 'select_tool',
-      timestamp: new Date().toISOString()
-    });
-    
-    const toolSelection = await selectMusicDiscoveryTool(query);
-    logger.info('Selected tool:', toolSelection);
-    
-    // Add tool selection to call tree
-    callTree.steps[callTree.steps.length - 1].toolSelection = toolSelection;
-    
-    // Add tool descriptions to call tree for debugging
-    if (global.lastToolDescriptions) {
-      callTree.toolDescriptions = global.lastToolDescriptions;
-    }
-    
-    if (!toolSelection.toolName) {
-      // Add tool selection failure to call tree
-      callTree.steps.push({
-        step: 'tool_selection_failed',
-        timestamp: new Date().toISOString()
-      });
-      
-      // Store the call tree in global scope for debugging
-      global.lastCallTree = callTree;
-      
-      return await handleGeneralQuery(query, '', 'detailed');
-    }
-    
-    const { toolName, args } = toolSelection;
-    
-    // Call the selected tool
-    let toolResult;
-    try {
-      // Add tool call step to call tree
-      callTree.steps.push({
-        step: 'call_tool',
-        toolName,
-        args,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Get the layer information from the tool info
-      const toolInfo = mcpClient.findTool(toolName);
-      if (!toolInfo) {
-        const error = `Tool ${toolName} not found in available tools`;
-        
-        // Add tool not found error to call tree
-        callTree.steps[callTree.steps.length - 1].error = error;
-        
-        // Store the call tree in global scope for debugging
-        global.lastCallTree = callTree;
-        
-        throw new Error(error);
-      }
-      
-      // Add layer info to call tree
-      callTree.steps[callTree.steps.length - 1].layer = toolInfo.layer;
-      
-      logger.info(`Calling ${toolInfo.layer} tool: ${toolName}`, { args });
-      toolResult = await mcpClient.callTool(toolName, args);
-      logger.info(`${toolName} call successful`);
-      
-      // Add tool result to call tree
-      callTree.steps[callTree.steps.length - 1].result = toolResult;
-    } catch (error) {
-      logger.error(`Error calling ${toolName}:`, error.message);
-      
-      // Add error to call tree
-      callTree.steps[callTree.steps.length - 1].error = error.message;
-      
-      // Store the call tree in global scope for debugging
-      global.lastCallTree = callTree;
-      
-      throw error;
-    }
-    
-    // Process the tool result to ensure Spotify links are used
-    callTree.steps.push({
-      step: 'process_tool_result',
-      timestamp: new Date().toISOString()
-    });
-    
-    const processedResult = await processToolResult(toolResult, query);
-    
-    // Add processed result to call tree
-    callTree.steps[callTree.steps.length - 1].processedResult = processedResult;
-    
-    // Store the complete call tree in global scope for debugging
-    global.lastCallTree = callTree;
-    
-    // Make the call tree available in the response for debugging
-    return {
-      content: [
-        {
-          type: "text",
-          text: processedResult
-        }
-      ],
-      callTree: callTree
-    };
-  } catch (error) {
-    logger.error('Error handling music discovery', { error: error.message });
-    
-    // Create a call tree for error case if it doesn't exist
-    if (!global.lastCallTree) {
-      global.lastCallTree = {
+    // Initialize client state for debugging
+    const clientState = {
+      query,
+      chatHistory,
+      callTree: {
         initialQuery: query,
         timestamp: new Date().toISOString(),
-        steps: [
+        steps: []
+      }
+    };
+    
+    // Select the appropriate tool for the query
+    const { toolName, toolArgs } = await selectTool(query, mcpClient);
+    
+    if (!toolName) {
+      // If no tool was selected, handle as a general query
+      return await handleGeneralQuery(query, context, responseFormat, chatHistory);
+    }
+    
+    // Log the selected tool
+    logger.info(`Selected tool: ${toolName}`, { args: toolArgs });
+    
+    // Add tool selection to call tree
+    clientState.callTree.steps.push({
+      type: 'tool_selection',
+      toolName,
+      toolArgs,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Find the tool info to get the layer
+    const toolInfo = mcpClient.findTool(toolName);
+    if (!toolInfo) {
+      logger.error(`Tool ${toolName} not found`);
+      return {
+        content: [
           {
-            step: 'error',
-            error: error.message,
-            stack: error.stack,
-            timestamp: new Date().toISOString()
+            type: "text",
+            text: `I couldn't find the tool "${toolName}" to process your request. Please try again with a different query.`
           }
-        ]
+        ],
+        isError: true
       };
     }
     
-    // Provide a more helpful error message
-    let errorMessage = `i'm sorry, i encountered an error while discovering music: ${error.message}`;
+    // Call the selected tool
+    logger.info(`Calling tool ${toolName} from layer ${toolInfo.layer}`);
+    const toolResult = await mcpClient.callTool(toolName, toolArgs);
     
-    // If it's a client availability issue, suggest using general music knowledge instead
-    if (error.message.includes('client not available') || error.message.includes('tool not found')) {
-      errorMessage = "i'm sorry, i'm currently unable to access my music discovery tools. would you like me to tell you about this music based on my general knowledge instead?";
-    }
+    // Add tool result to call tree
+    clientState.callTree.steps.push({
+      type: 'tool_result',
+      toolName,
+      result: toolResult,
+      timestamp: new Date().toISOString()
+    });
     
+    // Process the tool result
+    const processedResult = await processToolResult({
+      toolName,
+      toolResult,
+      chatHistory,
+      mcpClient,
+      responseFormat
+    });
+    
+    // Add processed result to call tree
+    clientState.callTree.steps.push({
+      type: 'processed_result',
+      result: processedResult,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Store the call tree in a global variable for debugging
+    global.lastCallTree = clientState.callTree;
+    
+    // Return the processed result with the call tree for debugging
+    return {
+      ...processedResult,
+      debug: {
+        callTree: clientState.callTree
+      }
+    };
+    
+  } catch (error) {
+    logger.error(`Error handling query: ${error.message}`);
     return {
       content: [
         {
           type: "text",
-          text: errorMessage
+          text: `I encountered an error while processing your request: ${error.message}. Please try again or ask a different question.`
         }
       ],
       isError: true,
-      callTree: global.lastCallTree
+      debug: {
+        callTree: global.lastCallTree || {
+          error: error.message,
+          stack: error.stack
+        }
+      }
     };
   }
 }
 
 /**
- * Select the appropriate tool for a music discovery request
+ * Select the appropriate tool for a query
  * @param {string} query - The user query
+ * @param {object} mcpClient - The MCP client
  * @returns {Promise<object>} - The selected tool and arguments
  */
-async function selectMusicDiscoveryTool(query) {
+async function selectTool(query, mcpClient) {
   try {
     // Fetch available tools from all layers
-    const allTools = mcpClient.getAllTools();
-    logger.info('Available tools for tool selection:', {
-      layer1Count: allTools.layer1?.length || 0,
-      layer2Count: allTools.layer2?.length || 0,
-      layer3Count: allTools.layer3?.length || 0
-    });
+    const allTools = await mcpClient.getAllTools();
+    const layer1Tools = allTools.filter(tool => tool.layer === 1);
+    const layer2Tools = allTools.filter(tool => tool.layer === 2);
     
-    // Format tools as JSON for LLM prompting
-    const toolsDescription = toolFormatter.formatAllToolsForLLM(allTools, {
-      header: "AVAILABLE TOOLS:\n\n"
-    });
+    // Log tool counts for debugging
+    logger.debug(`Available tools - Layer 1: ${layer1Tools.length}, Layer 2: ${layer2Tools.length}, Layer 3: ${allTools.length - layer1Tools.length - layer2Tools.length}`);
     
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { 
-          role: "system", 
-          content: `You are a tool selector for music discovery. Select the most appropriate tool and provide its arguments.
-${toolsDescription}
-
-IMPORTANT: Make sure to provide all required arguments for the selected tool.
-Analyze the user query carefully to extract the necessary parameters.
-If the query doesn't contain enough information for required parameters, make reasonable inferences.
-
-CRITICAL: You MUST use the EXACT parameter names as specified in the tool descriptions.
-DO NOT convert camelCase parameter names to snake_case or any other format.
-For example, if a parameter is named "lowerCapped", you must use "lowerCapped" and NOT "lower_capped".
-
-If you're uncertain which tool will best answer the query, recommend using the "parallel_tools" action
-in the processToolResult function that will be called next, rather than picking just one tool here.
-
-Respond in JSON format with the following structure:
-{
-  "toolName": "name-of-selected-tool",
-  "args": {
-    "param1": "value1",
-    "param2": "value2"
-  }
-}`
-        },
-        { 
-          role: "user", 
-          content: `Select the most appropriate tool for this query: "${query}"`
-        }
-      ],
-      temperature: 0.2,
-      response_format: { type: "json_object" }
-    });
+    // Format tools for LLM
+    const toolsFormatted = await mcpClient.formatAllToolsForLLM();
     
-    const result = JSON.parse(response.choices[0].message.content);
-    
-    // Validate that the selected tool exists
-    const toolInfo = mcpClient.findTool(result.toolName);
-    if (!toolInfo) {
-      logger.warn(`Selected tool ${result.toolName} not found in available tools`);
-      return { toolName: null };
-    }
-    
-    // Add the layer information from toolInfo
-    result.layer = toolInfo.layer;
-    
-    // Extract required parameters from the tool schema
-    const requiredParams = [];
-    if (toolInfo.tool._schema && toolInfo.tool._schema.arguments && toolInfo.tool._schema.arguments.shape) {
-      const params = toolInfo.tool._schema.arguments.shape;
-      Object.keys(params).forEach(paramName => {
-        const param = params[paramName];
-        if (!param.isOptional) {
-          requiredParams.push(paramName);
-        }
-      });
-    }
-    
-    // Check if all required parameters are provided
-    const missingParams = requiredParams.filter(param => !result.args[param]);
-    if (missingParams.length > 0) {
-      logger.warn(`Missing required parameters for ${result.toolName}: ${missingParams.join(', ')}`);
-      
-      // Try to extract missing parameters from the query
-      missingParams.forEach(param => {
-        // Extract artist name
-        if (param === 'artist' || param === 'artistName') {
-          const artistMatch = query.match(/similar to (the artist )?([^?.,]+)/i);
-          if (artistMatch && artistMatch[2]) {
-            result.args[param] = artistMatch[2].trim();
-            logger.info(`Extracted ${param} from query: ${result.args[param]}`);
-          }
-        }
-        
-        // Extract track name
-        if (param === 'track' || param === 'trackName') {
-          const trackMatch = query.match(/song|track ([^?.,]+) by/i);
-          if (trackMatch && trackMatch[1]) {
-            result.args[param] = trackMatch[1].trim();
-            logger.info(`Extracted ${param} from query: ${result.args[param]}`);
-          }
-        }
-      });
-      
-      // Check again if all required parameters are provided
-      const stillMissingParams = requiredParams.filter(param => !result.args[param]);
-      if (stillMissingParams.length > 0) {
-        logger.warn(`Still missing required parameters after extraction: ${stillMissingParams.join(', ')}`);
-        return { toolName: null };
-      }
-    }
-    
-    logger.info('Final tool selection:', { 
-      toolName: result.toolName, 
-      layer: result.layer, 
-      args: result.args 
-    });
-    
-    return result;
-  } catch (error) {
-    logger.error('Error selecting music discovery tool', { error: error.message });
-    return { toolName: null };
-  }
-}
-
-/**
- * Process a tool result to ensure Spotify links are used
- * @param {object} toolResult - The result from the tool
- * @param {string} query - The original user query
- * @returns {Promise<string>} - The processed result
- */
-async function processToolResult(toolResult, query) {
-  try {
-    // Extract the content from the tool result
-    let resultContent = '';
-    
-    if (toolResult && toolResult.content && Array.isArray(toolResult.content)) {
-      toolResult.content.forEach(item => {
-        if (item.type === 'text') {
-          resultContent += item.text;
-        }
-      });
-    } else if (typeof toolResult === 'string') {
-      resultContent = toolResult;
-    }
-    
-    // Create a context string that includes previous interactions
-    // This allows the process-query tool to maintain context between interactions
-    let contextString = '';
-    if (chatHistory && chatHistory.length > 0) {
-      // Include up to the last 5 interactions (10 messages) for context
-      const relevantHistory = chatHistory.slice(-10);
-      contextString = relevantHistory.map(msg => 
-        `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
-      ).join('\n\n');
-      
-      contextString = `Previous conversation:\n${contextString}\n\n`;
-    }
-    
-    // Fetch available tools from all layers
-    const allTools = mcpClient.getAllTools();
-    logger.info('Available tools for conversation loop:', {
-      layer1Count: allTools.layer1?.length || 0,
-      layer2Count: allTools.layer2?.length || 0,
-      layer3Count: allTools.layer3?.length || 0
-    });
-    
-    // Format tools as JSON for LLM prompting
-    const toolsDescription = toolFormatter.formatAllToolsForLLM(allTools, {
-      header: "Available tools:\n"
-    });
-    
-    // Implement a conversation loop with the LLM
+    // Create messages array for LLM
     const messages = [
-      { 
-        role: "system", 
-        content: `You are a helpful music discovery assistant. Your task is to process music discovery results and present them to the user.
+      {
+        role: 'system',
+        content: `You are a tool selector for an AI assistant. Your task is to analyze a user query and select the most appropriate tool to handle it.
 
-Important guidelines:
-1. Format the response in lowercase to match the aesthetic of the music-aipi system
-2. Make the response conversational and engaging
-3. Include ALL relevant information - do not truncate or summarize the results
-4. You have access to tools that can help you get information. Use them when needed.
-5. DO NOT make up Spotify links. If you need a Spotify link, use an appropriate tool.
+IMPORTANT INSTRUCTIONS:
+1. Select ONLY ONE tool that best matches the user's query and intent
+2. Return your response in JSON format with 'toolName' and 'toolArgs' fields
+3. For 'toolArgs', include ONLY the parameters required by the selected tool
+4. Use EXACT parameter names as specified in the tool descriptions
+5. Extract all necessary information from the user query to fill the tool parameters
+6. If you cannot determine which tool to use or the query doesn't seem to require a specific tool, return null for toolName
 
-CRITICAL: When using tools, you MUST use the EXACT parameter names as specified in the tool descriptions.
-DO NOT convert camelCase parameter names to snake_case or any other format.
-For example, if a parameter is named "lowerCapped", you must use "lowerCapped" and NOT "lower_capped".
-Do not mix up the tool parameters. For example, one may be 'artist' or 'artistName' or 'artist_name' - but the tools will not work if you get it wrong. Use what is specified in the tool descriptions.
-
-IMPORTANT: If you're uncertain which tool will have the best data, use the "parallel_tools" action to query multiple tools simultaneously. This is especially useful for:
-- Finding information across different music services
-- Getting both artist information and track recommendations
-- Comparing results from different discovery methods
-- Ensuring comprehensive coverage of the user's request
+${toolsFormatted}
 
 RESPONSE FORMAT:
-You must respond in JSON format with one of these structures:
-
-1. To use a single tool:
 {
-  "action": "tool",
-  "tool_name": "name-of-tool",
-  "tool_args": {
+  "toolName": "name-of-selected-tool",
+  "toolArgs": {
     "param1": "value1",
     "param2": "value2"
   }
 }
 
-2. To use multiple tools in parallel:
-{
-  "action": "parallel_tools",
-  "tools": [
-    {
-      "tool_name": "name-of-tool-1",
-      "tool_args": {
-        "param1": "value1",
-        "param2": "value2"
-      }
-    },
-    {
-      "tool_name": "name-of-tool-2",
-      "tool_args": {
-        "param1": "value1",
-        "param2": "value2"
-      }
-    }
-  ]
-}
-
-3. To provide a final response:
-{
-  "action": "output",
-  "text": "your final response text here"
-}
-
-${toolsDescription}
-
-IMPORTANT: You are responsible for extracting all necessary parameters from the user query. Analyze the query carefully to identify artists, tracks, genres, or any other relevant information needed for tool calls.
-
-Original user query: "${query}"`
-      },
-      { 
-        role: "user", 
-        content: `User query: "${query}"
-Raw music discovery results:
-${resultContent}
-
-Process this data and provide a helpful response. Use tools as needed to get Spotify links or additional information. Make sure to extract all necessary parameters from the user query.`
+User query: "${query}"`
       }
     ];
     
-    // Maximum number of conversation turns
-    const maxTurns = 5;
-    let currentTurn = 0;
-    let finalResponse = null;
+    // Call LLM to select tool
+    const llmResponse = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages,
+      temperature: 0.2,
+      max_tokens: 500,
+      response_format: { type: "json_object" }
+    });
     
-    while (currentTurn < maxTurns && !finalResponse) {
-      currentTurn++;
-      logger.info(`Processing turn ${currentTurn} of conversation loop`);
-      
-      // Call the LLM
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: messages,
-        temperature: 0.7,
-        max_tokens: 1500,
-        response_format: { type: "json_object" }
-      });
-      
-      const assistantMessage = response.choices[0].message.content;
-      
-      try {
-        // Parse the JSON response
-        const parsedResponse = JSON.parse(assistantMessage);
-        
-        // Check if this is a final response
-        if (parsedResponse.action === 'output') {
-          finalResponse = parsedResponse.text;
-          logger.info('Final response received');
-          break;
-        }
-        
-        // Check if this is a single tool call
-        if (parsedResponse.action === 'tool') {
-          const toolName = parsedResponse.tool_name;
-          const toolArgs = parsedResponse.tool_args || {};
-          
-          if (toolName) {
-            logger.info(`Tool call requested: ${toolName}`, toolArgs);
-            
-            // Find the tool in available tools
-            const toolInfo = mcpClient.findTool(toolName);
-            
-            if (toolInfo) {
-              logger.info(`Found tool ${toolName} in ${toolInfo.layer}`);
-              
-              // Validate required parameters
-              let missingParams = [];
-              if (toolInfo.tool._schema && toolInfo.tool._schema.arguments && toolInfo.tool._schema.arguments.shape) {
-                const params = toolInfo.tool._schema.arguments.shape;
-                Object.keys(params).forEach(paramName => {
-                  const param = params[paramName];
-                  if (!param.isOptional && !toolArgs[paramName]) {
-                    missingParams.push(paramName);
-                  }
-                });
-              }
-              
-              if (missingParams.length > 0) {
-                logger.warn(`Missing required parameters for ${toolName}: ${missingParams.join(', ')}`);
-                
-                messages.push({ role: "assistant", content: assistantMessage });
-                messages.push({ 
-                  role: "user", 
-                  content: `Error: Missing required parameters for tool ${toolName}: ${missingParams.join(', ')}. Please extract these parameters from the user query: "${query}" and provide all required parameters.`
-                });
-                continue;
-              }
-              
-              try {
-                // Call the tool
-                const toolResult = await mcpClient.callTool(toolName, toolArgs);
-                let toolResponse = '';
-                
-                if (toolResult && toolResult.content && Array.isArray(toolResult.content)) {
-                  toolResult.content.forEach(item => {
-                    if (item.type === 'text') {
-                      toolResponse += item.text;
-                    }
-                  });
-                }
-                
-                // Add the tool response to the conversation
-                messages.push({ role: "assistant", content: assistantMessage });
-                messages.push({ 
-                  role: "user", 
-                  content: `Tool response for ${toolName}:\n${toolResponse}\n\nContinue processing the results.`
-                });
-              } catch (error) {
-                logger.error(`Error calling tool ${toolName}:`, error.message);
-                
-                // Inform the LLM about the error
-                messages.push({ role: "assistant", content: assistantMessage });
-                messages.push({ 
-                  role: "user", 
-                  content: `Error calling tool ${toolName}: ${error.message}\n\nPlease try again with different parameters or try a different approach. Original user query: "${query}"`
-                });
-              }
-            } else {
-              logger.warn(`Tool ${toolName} not found in available tools`);
-              
-              messages.push({ role: "assistant", content: assistantMessage });
-              messages.push({ 
-                role: "user", 
-                content: `Error: Tool "${toolName}" not found in available tools. Please use one of the available tools or provide a final response.`
-              });
-            }
-          } else {
-            logger.warn('No tool name provided in tool call');
-            
-            messages.push({ role: "assistant", content: assistantMessage });
-            messages.push({ 
-              role: "user", 
-              content: `Error: No tool name provided. Please specify a tool name or provide a final response.`
-            });
-          }
-        }
-        // Check if this is a parallel tool call
-        else if (parsedResponse.action === 'parallel_tools') {
-          const tools = parsedResponse.tools || [];
-          
-          if (tools.length > 0) {
-            logger.info(`Parallel tool calls requested: ${tools.length} tools`);
-            
-            // Validate all tools first
-            const validTools = [];
-            const invalidTools = [];
-            const missingParamsTools = [];
-            
-            for (const toolRequest of tools) {
-              const toolName = toolRequest.tool_name;
-              const toolArgs = toolRequest.tool_args || {};
-              const toolInfo = mcpClient.findTool(toolName);
-              
-              if (!toolInfo) {
-                invalidTools.push(toolName);
-                continue;
-              }
-              
-              // Validate required parameters
-              let missingParams = [];
-              if (toolInfo.tool._schema && toolInfo.tool._schema.arguments && toolInfo.tool._schema.arguments.shape) {
-                const params = toolInfo.tool._schema.arguments.shape;
-                Object.keys(params).forEach(paramName => {
-                  const param = params[paramName];
-                  if (!param.isOptional && !toolArgs[paramName]) {
-                    missingParams.push(paramName);
-                  }
-                });
-              }
-              
-              if (missingParams.length > 0) {
-                missingParamsTools.push({
-                  tool_name: toolName,
-                  missing: missingParams
-                });
-              } else {
-                validTools.push({
-                  ...toolRequest,
-                  layer: toolInfo.layer
-                });
-              }
-            }
-            
-            if (invalidTools.length > 0 || missingParamsTools.length > 0) {
-              let errorMessage = '';
-              
-              if (invalidTools.length > 0) {
-                errorMessage += `The following tools were not found: ${invalidTools.join(', ')}. `;
-              }
-              
-              if (missingParamsTools.length > 0) {
-                errorMessage += 'The following tools have missing required parameters: ';
-                missingParamsTools.forEach(tool => {
-                  errorMessage += `${tool.tool_name} (missing: ${tool.missing.join(', ')}), `;
-                });
-                errorMessage = errorMessage.slice(0, -2) + '.';
-              }
-              
-              messages.push({ role: "assistant", content: assistantMessage });
-              messages.push({ 
-                role: "user", 
-                content: `Error: ${errorMessage} Please extract these parameters from the user query: "${query}" and provide all required parameters, or provide a final response.`
-              });
-              continue;
-            }
-            
-            // Execute all valid tools in parallel
-            const toolPromises = validTools.map(async (toolRequest) => {
-              const { tool_name, tool_args, layer } = toolRequest;
-              
-              try {
-                logger.info(`Calling tool ${tool_name} from ${layer}`, tool_args);
-                const result = await mcpClient.callTool(tool_name, tool_args);
-                
-                let toolResponse = '';
-                if (result && result.content && Array.isArray(result.content)) {
-                  result.content.forEach(item => {
-                    if (item.type === 'text') {
-                      toolResponse += item.text;
-                    }
-                  });
-                }
-                
-                return {
-                  tool_name,
-                  success: true,
-                  response: toolResponse
-                };
-              } catch (error) {
-                logger.error(`Error calling tool ${tool_name}:`, error.message);
-                
-                return {
-                  tool_name,
-                  success: false,
-                  error: error.message
-                };
-              }
-            });
-            
-            // Wait for all tool calls to complete
-            const toolResults = await Promise.all(toolPromises);
-            
-            // Add all tool responses to the conversation in sequence
-            messages.push({ role: "assistant", content: assistantMessage });
-            
-            for (const result of toolResults) {
-              if (result.success) {
-                messages.push({ 
-                  role: "user", 
-                  content: `Tool response for ${result.tool_name}:\n${result.response}`
-                });
-              } else {
-                messages.push({ 
-                  role: "user", 
-                  content: `Error calling tool ${result.tool_name}: ${result.error}`
-                });
-              }
-            }
-            
-            // Add a final message to continue processing
-            messages.push({ 
-              role: "user", 
-              content: `All tool responses have been provided. Please continue processing the results.`
-            });
-          } else {
-            logger.warn('No tools provided in parallel_tools action');
-            
-            messages.push({ role: "assistant", content: assistantMessage });
-            messages.push({ 
-              role: "user", 
-              content: `Error: No tools provided in parallel_tools action. Please specify at least one tool or provide a final response.`
-            });
-          }
-        } else if (parsedResponse.action !== 'output') {
-          // Invalid action
-          logger.warn(`Invalid action: ${parsedResponse.action}`);
-          
-          messages.push({ role: "assistant", content: assistantMessage });
-          messages.push({ 
-            role: "user", 
-            content: `Error: Invalid action "${parsedResponse.action}". Please use "tool", "parallel_tools", or "output".`
-          });
-        }
-      } catch (parseError) {
-        logger.error('Error parsing JSON response:', parseError.message);
-        
-        messages.push({ role: "assistant", content: assistantMessage });
-        messages.push({ 
-          role: "user", 
-          content: `Error: Could not parse your response as JSON. Please provide a valid JSON response with either a tool call or final output.`
-        });
-      }
+    // Parse the response
+    const responseContent = llmResponse.choices[0].message.content;
+    let parsedResponse;
+    
+    try {
+      parsedResponse = JSON.parse(responseContent);
+    } catch (error) {
+      logger.error(`Error parsing LLM response: ${error.message}`);
+      return { toolName: null, toolArgs: {} };
     }
     
-    // If we reached max turns without a final response, use the last message or raw results
-    if (!finalResponse) {
-      logger.warn(`Reached maximum turns (${maxTurns}) without a final response`);
-      finalResponse = `here's what i found for "${query}": ${resultContent}`;
+    const { toolName, toolArgs } = parsedResponse;
+    
+    // Validate the selected tool
+    if (!toolName) {
+      logger.info('No tool selected by LLM, will handle as general query');
+      return { toolName: null, toolArgs: {} };
     }
     
-    return finalResponse;
+    // Find the tool in available tools
+    const toolInfo = mcpClient.findTool(toolName);
+    
+    if (!toolInfo) {
+      logger.warn(`Selected tool ${toolName} not found in available tools`);
+      return { toolName: null, toolArgs: {} };
+    }
+    
+    // Log the final tool selection
+    logger.info(`Selected tool: ${toolName}`, { args: toolArgs });
+    
+    return { toolName, toolArgs: toolArgs || {} };
+    
   } catch (error) {
-    logger.error('Error processing tool result', { error: error.message, stack: error.stack });
-    
-    // Make sure resultContent is defined in this scope
-    let resultContent = '';
-    if (toolResult && toolResult.content && Array.isArray(toolResult.content)) {
-      toolResult.content.forEach(item => {
-        if (item.type === 'text') {
-          resultContent += item.text;
-        }
-      });
-    } else if (typeof toolResult === 'string') {
-      resultContent = toolResult;
-    }
-    
-    // Final fallback - return the raw results instead of a summary
-    return `here's what i found for "${query}": ${resultContent}`;
+    logger.error(`Error selecting tool: ${error.message}`);
+    return { toolName: null, toolArgs: {} };
   }
 }
 
 /**
- * Handle a general query
+ * Process the result of a tool call and generate a response
+ * @param {object} params - Parameters for processing the tool result
+ * @returns {Promise<object>} - The processed result
+ */
+async function processToolResult(params) {
+  const { toolName, toolResult, chatHistory, mcpClient, responseFormat = 'detailed' } = params;
+  
+  try {
+    // Extract content from the tool result
+    let content = '';
+    if (Array.isArray(toolResult.content)) {
+      content = toolResult.content
+        .filter(item => item.type === 'text')
+        .map(item => item.text)
+        .join('\n');
+    } else if (typeof toolResult.content === 'string') {
+      content = toolResult.content;
+    }
+    
+    // Create context from chat history
+    const context = chatHistory.slice(-10).map(msg => {
+      return {
+        role: msg.role,
+        content: msg.content
+      };
+    });
+    
+    // Get available tools
+    const allTools = await mcpClient.getAllTools();
+    const layer1Tools = allTools.filter(tool => tool.layer === 1);
+    const layer2Tools = allTools.filter(tool => tool.layer === 2);
+    
+    // Log tool counts for debugging
+    logger.debug(`Available tools - Layer 1: ${layer1Tools.length}, Layer 2: ${layer2Tools.length}, Layer 3: ${allTools.length - layer1Tools.length - layer2Tools.length}`);
+    
+    // Format tools for LLM
+    const toolsFormatted = await mcpClient.formatAllToolsForLLM();
+    
+    // Determine the appropriate system message based on response format
+    let systemContent;
+    switch (responseFormat) {
+      case 'concise':
+        systemContent = "You are a helpful assistant that provides concise, to-the-point answers.";
+        break;
+      case 'detailed':
+        systemContent = "You are a helpful assistant that provides detailed, comprehensive answers.";
+        break;
+      case 'technical':
+        systemContent = "You are a helpful assistant that provides technical, precise answers with relevant details.";
+        break;
+      case 'simple':
+        systemContent = "You are a helpful assistant that provides simple, easy-to-understand answers without technical jargon.";
+        break;
+      default:
+        systemContent = "You are a helpful assistant.";
+    }
+    
+    // Add lowercase aesthetic instruction
+    systemContent += " Your responses should be in lowercase to match the aesthetic of the system.";
+    
+    // Create messages array for LLM
+    const messages = [
+      {
+        role: 'system',
+        content: `${systemContent}
+
+You have access to various tools that can help you fulfill user requests. If the current result doesn't fully address the user's query, you can suggest using additional tools.
+
+${toolsFormatted}
+
+The result of your previous tool call (${toolName}) is:
+${content}`
+      },
+      ...context
+    ];
+    
+    // Log conversation history for debugging
+    logger.debug(`Adding ${context.length} messages from conversation history`);
+    
+    // Call LLM to generate response
+    const llmResponse = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: messages,
+      temperature: 0.7,
+      max_tokens: 1000
+    });
+    
+    // Return the LLM response in the correct format for MCP
+    return {
+      content: [
+        {
+          type: "text",
+          text: llmResponse.choices[0].message.content
+        }
+      ]
+    };
+    
+  } catch (error) {
+    logger.error(`Error processing tool result: ${error.message}`);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `I encountered an error while processing the results: ${error.message}. Please try again or ask a different question.`
+        }
+      ],
+      isError: true
+    };
+  }
+}
+
+/**
+ * Handle a general query without using specific tools
  * @param {string} query - The user query
  * @param {string} context - Additional context
  * @param {string} responseFormat - Format of the response
+ * @param {array} conversationHistory - The conversation history from the front end
  * @returns {Promise<object>} - The response
  */
-async function handleGeneralQuery(query, context, responseFormat) {
+async function handleGeneralQuery(query, context, responseFormat, conversationHistory = []) {
   try {
     // Construct system prompt based on response format
     let systemPrompt;
     switch (responseFormat) {
       case 'concise':
-        systemPrompt = "You are a helpful music assistant that provides concise, to-the-point answers.";
+        systemPrompt = "You are a helpful assistant that provides concise, to-the-point answers.";
         break;
       case 'detailed':
-        systemPrompt = "You are a helpful music assistant that provides detailed, comprehensive answers.";
+        systemPrompt = "You are a helpful assistant that provides detailed, comprehensive answers.";
         break;
       case 'technical':
-        systemPrompt = "You are a helpful music assistant that provides technical, precise answers with relevant details.";
+        systemPrompt = "You are a helpful assistant that provides technical, precise answers with relevant details.";
         break;
       case 'simple':
-        systemPrompt = "You are a helpful music assistant that provides simple, easy-to-understand answers without technical jargon.";
+        systemPrompt = "You are a helpful assistant that provides simple, easy-to-understand answers without technical jargon.";
         break;
       default:
-        systemPrompt = "You are a helpful music assistant.";
+        systemPrompt = "You are a helpful assistant.";
     }
     
     // Add lowercase aesthetic instruction
-    systemPrompt += " Your responses should be in lowercase to match the aesthetic of the music-aipi system.";
+    systemPrompt += " Your responses should be in lowercase to match the aesthetic of the system.";
     
-    // Prepare user prompt with context if provided
-    const userPrompt = context 
-      ? `Context information:\n${context}\n\nQuery: ${query}`
-      : query;
+    // Start with the system message
+    let messages = [{ role: "system", content: systemPrompt }];
+    
+    // Add conversation history as actual messages
+    if (conversationHistory && conversationHistory.length > 0) {
+      // Add each message from the history to the messages array
+      conversationHistory.forEach(msg => {
+        messages.push({
+          role: msg.role,
+          content: msg.content
+        });
+      });
+      
+      logger.info('Added conversation history to messages in handleGeneralQuery', { 
+        historyLength: conversationHistory.length 
+      });
+    }
+    
+    // Add the current query
+    messages.push({ 
+      role: "user", 
+      content: context ? `${context}\n\n${query}` : query 
+    });
     
     // Call OpenAI API
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
+      messages: messages,
       temperature: 0.7,
       max_tokens: 4000
     });

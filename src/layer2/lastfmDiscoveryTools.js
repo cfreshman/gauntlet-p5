@@ -35,7 +35,7 @@ function registerLastfmDiscoveryTools(server) {
     'Discovers artists similar to a specified artist using Last.fm',
     {
       artistName: z.string().describe('Name of the artist to find similar artists for'),
-      limit: z.number().int().min(1).max(100).default(20).describe('Number of similar artists to return'),
+      limit: z.number().int().min(1).max(100).default(5).describe('Number of similar artists to return'),
       includeTopTracks: z.boolean().default(true).describe('Whether to include top tracks for each artist')
     },
     discoverSimilarArtists
@@ -48,7 +48,7 @@ function registerLastfmDiscoveryTools(server) {
     {
       tag: z.string().describe('Tag/genre to discover music by'),
       type: z.enum(['tracks', 'artists', 'albums']).default('tracks').describe('Type of content to discover'),
-      limit: z.number().int().min(1).max(100).default(20).describe('Number of items to return'),
+      limit: z.number().int().min(1).max(100).default(5).describe('Number of items to return'),
       findOnSpotify: z.boolean().default(true).describe('Whether to find the items on Spotify (for tracks)')
     },
     discoverByTag
@@ -145,15 +145,18 @@ async function discoverSimilarTracks(params) {
 async function discoverSimilarArtists(params) {
   const { 
     artistName, 
-    limit = 20,
+    limit = 5,
     includeTopTracks = false
   } = params;
   
   try {
     logger.info(`Discovering artists similar to "${artistName}"`);
     
+    // Enforce a reasonable limit
+    const actualLimit = Math.min(limit, 10); // Cap at 10 max
+    
     // Get similar artists from Last.fm
-    const similarArtistsResponse = await lastfmClient.getSimilarArtists(artistName, limit);
+    const similarArtistsResponse = await lastfmClient.getSimilarArtists(artistName, actualLimit);
     
     if (!similarArtistsResponse.similarartists || !similarArtistsResponse.similarartists.artist || similarArtistsResponse.similarartists.artist.length === 0) {
       throw new Error('No similar artists found');
@@ -177,7 +180,7 @@ async function discoverSimilarArtists(params) {
       // Include top tracks if requested
       if (includeTopTracks) {
         try {
-          const topTracksResponse = await lastfmClient.getArtistTopTracks(artist.name, 10);
+          const topTracksResponse = await lastfmClient.getArtistTopTracks(artist.name, 5); // Limit to 5 top tracks
           if (topTracksResponse.toptracks && topTracksResponse.toptracks.track) {
             artistData.topTracks = topTracksResponse.toptracks.track.map(track => ({
               name: track.name,
@@ -243,15 +246,19 @@ async function discoverSimilarArtists(params) {
 async function discoverByTag(params) {
   const { 
     tag, 
-    limit = 20,
+    type = 'tracks',
+    limit = 5, // Default to 5 instead of 20
     findOnSpotify = true
   } = params;
   
   try {
-    logger.info(`Discovering top tracks for tag "${tag}"`);
+    logger.info(`Discovering top ${type} for tag "${tag}"`);
+    
+    // Enforce a reasonable limit
+    const actualLimit = Math.min(limit, 10); // Cap at 10 max
     
     // Get top tracks by tag from Last.fm
-    const topTracksResponse = await lastfmClient.getTopTracksByTag(tag, limit);
+    const topTracksResponse = await lastfmClient.getTopTracksByTag(tag, actualLimit);
     
     if (!topTracksResponse.tracks || !topTracksResponse.tracks.track || topTracksResponse.tracks.track.length === 0) {
       throw new Error(`No tracks found for tag "${tag}"`);

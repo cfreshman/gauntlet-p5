@@ -57,7 +57,11 @@ async function processUserMessage(userInput) {
     
     // Use the music-aipi-agent tool from Layer 3
     const toolName = 'music-aipi-agent';
-    const toolArgs = { query: userInput };
+    const toolArgs = { 
+      query: userInput,
+      // Pass the chat history to the agent
+      conversationHistory: JSON.stringify(chatHistory)
+    };
     
     // Store the tool call for debugging
     debugInfo.lastToolCall = `${toolName} from layer3 with args: ${JSON.stringify(toolArgs)}`;

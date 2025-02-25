@@ -40,7 +40,7 @@ async function discoverSimilarMusic(params) {
   const { 
     seedType, 
     seeds, 
-    limit = 10, 
+    limit = 5,
     market = 'US',
     tunableTrackAttributes = {},
     includeAudioFeatures = false
@@ -53,6 +53,9 @@ async function discoverSimilarMusic(params) {
     if (!seeds || seeds.length === 0) {
       throw new Error('At least one seed must be provided');
     }
+    
+    // Enforce a reasonable limit
+    const actualLimit = Math.min(limit, 10); // Cap at 10 max
     
     // Since we're having issues with the recommendations endpoint,
     // we'll use search as an alternative approach
@@ -100,7 +103,7 @@ async function discoverSimilarMusic(params) {
     
     // Perform the search
     logger.info(`Searching with query: ${searchQuery}`);
-    const searchResults = await spotifyClient.search(searchQuery, ['track'], Math.min(limit * 2, 50));
+    const searchResults = await spotifyClient.search(searchQuery, ['track'], Math.min(actualLimit * 2, 50));
     
     if (!searchResults.tracks || searchResults.tracks.items.length === 0) {
       throw new Error('No similar tracks found');
@@ -119,7 +122,7 @@ async function discoverSimilarMusic(params) {
     }
     
     // Limit the number of tracks
-    tracks = tracks.slice(0, limit);
+    tracks = tracks.slice(0, actualLimit);
     
     logger.info(`Found ${tracks.length} similar tracks`);
     

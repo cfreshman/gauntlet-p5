@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import ChatInterface from './components/ChatInterface';
 import Header from './components/Header';
+import PlaybackControls from './components/PlaybackControls';
+import SpotifyAuthScreen from './components/SpotifyAuthScreen';
 import './styles/app.css';
 
 const STORAGE_KEY = 'music-aipi-chat-history';
@@ -14,7 +16,10 @@ const App = () => {
     return savedMessages ? JSON.parse(savedMessages) : [];
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [playbackState, setPlaybackState] = useState(null);
+  const [playbackDevices, setPlaybackDevices] = useState([]);
+  const [playerExpanded, setPlayerExpanded] = useState(false);
   const socketRef = useRef(null);
 
   // Save messages to localStorage whenever they change
@@ -23,7 +28,31 @@ const App = () => {
     console.log('saved messages to localStorage, count:', messages.length);
   }, [messages]);
 
+  // Check authentication status on mount
   useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  // Check authentication status
+  const checkAuthStatus = async () => {
+    try {
+      const response = await fetch('/api/auth/status', {
+        credentials: 'include'
+      });
+      
+      const data = await response.json();
+      setIsAuthenticated(data.authenticated);
+      
+      if (data.authenticated) {
+        initializeSocket();
+      }
+    } catch (error) {
+      console.error('Error checking auth status:', error);
+    }
+  };
+
+  // Initialize socket connection
+  const initializeSocket = () => {
     console.log('initializing socket connection...');
     socketRef.current = io();
     
@@ -48,6 +77,40 @@ const App = () => {
       console.log('MUSIC_AIPI_DEBUG:', debugInfo);
     });
     
+    // Playback-related event handlers
+    socketRef.current.on('playback-state', (state) => {
+      console.log('received playback state:', state);
+      setPlaybackState(state);
+    });
+    
+    socketRef.current.on('playback-devices', (data) => {
+      console.log('received playback devices:', data);
+      setPlaybackDevices(data.devices || []);
+    });
+    
+    socketRef.current.on('playback-result', (result) => {
+      console.log('playback command result:', result);
+      // Refresh playback state after successful command
+      if (result.success) {
+        socketRef.current.emit('playback-command', { action: 'get-playback-state' });
+      }
+    });
+    
+    socketRef.current.on('playback-error', (error) => {
+      // Only log certain errors, ignore volume control errors for iPhone
+      if (error && error.error && !error.error.includes('Cannot control device volume')) {
+        console.error('playback error:', error);
+      }
+    });
+    
+    socketRef.current.on('auth-success', (userData) => {
+      console.log('spotify auth success:', userData);
+      setIsAuthenticated(true);
+      // Fetch initial playback state after successful auth
+      socketRef.current.emit('playback-command', { action: 'get-playback-state' });
+      socketRef.current.emit('playback-command', { action: 'get-devices' });
+    });
+    
     socketRef.current.on('connect_error', (error) => {
       console.error('socket connection error:', error);
     });
@@ -56,153 +119,18 @@ const App = () => {
       console.error('socket error:', error);
     });
     
-    // Add global debug function to window object
-    window.debugMusicAipi = {
-      showTools: async () => {
-        try {
-          console.log('Fetching tool descriptions...');
-          const response = await fetch('/api/tool-descriptions');
-          const data = await response.json();
-          
-          // Log the formatted tool descriptions
-          console.log('TOOL_DESCRIPTIONS:');
-          console.log(data.toolsDescription);
-          
-          // Format and log detailed tool parameters
-          console.log('DETAILED_TOOL_PARAMETERS:');
-          
-          // Process each layer
-          ['layer1', 'layer2', 'layer3'].forEach(layer => {
-            if (data.rawTools[layer] && data.rawTools[layer].length > 0) {
-              console.group(`${layer.toUpperCase()} TOOLS:`);
-              
-              // Process each tool in the layer
-              data.rawTools[layer].forEach(tool => {
-                console.group(`${tool.name}: ${tool.description}`);
-                
-                // Log the raw tool object to see its structure
-                console.log('Raw tool object:', tool);
-                
-                // Try different ways to access schema information
-                if (tool._schema) {
-                  console.log('Tool has _schema property');
-                  console.log('Schema:', tool._schema);
-                }
-                
-                if (tool.schema) {
-                  console.log('Tool has schema property');
-                  console.log('Schema:', tool.schema);
-                }
-                
-                // Try to find parameters in various locations
-                let params = null;
-                
-                if (tool._schema && tool._schema.arguments && tool._schema.arguments.shape) {
-                  params = tool._schema.arguments.shape;
-                } else if (tool.schema && tool.schema.arguments && tool.schema.arguments.shape) {
-                  params = tool.schema.arguments.shape;
-                } else if (tool.arguments) {
-                  params = tool.arguments;
-                }
-                
-                if (params) {
-                  console.log('Parameters found:');
-                  Object.keys(params).forEach(paramName => {
-                    const param = params[paramName];
-                    console.log(`  - ${paramName}: ${JSON.stringify(param)}`);
-                  });
-                } else {
-                  console.log('No parameters found in expected locations');
-                }
-                
-                console.groupEnd();
-              });
-              
-              console.groupEnd();
-            }
-          });
-          
-          return data;
-        } catch (error) {
-          console.error('Error fetching tool descriptions:', error);
-          return null;
-        }
-      },
-      findTool: (toolName) => {
-        console.log(`Searching for tool: ${toolName}`);
-        fetch('/api/tool-descriptions')
-          .then(response => response.json())
-          .then(data => {
-            let found = false;
-            
-            ['layer1', 'layer2', 'layer3'].forEach(layer => {
-              if (data.enhancedTools[layer]) {
-                const tool = data.enhancedTools[layer].find(t => t.name === toolName);
-                if (tool) {
-                  found = true;
-                  console.group(`FOUND TOOL: ${tool.name} (${layer})`);
-                  console.log('Description:', tool.description);
-                  
-                  // Log parameter details
-                  if (tool.paramDetails && tool.paramDetails.source) {
-                    console.log(`Parameters found in: ${tool.paramDetails.source}`);
-                    
-                    if (tool.paramDetails.params) {
-                      console.group('Parameters:');
-                      
-                      try {
-                        if (typeof tool.paramDetails.params === 'object') {
-                          Object.keys(tool.paramDetails.params).forEach(paramName => {
-                            const param = tool.paramDetails.params[paramName];
-                            console.log(`  - ${paramName}: ${JSON.stringify(param)}`);
-                          });
-                        } else {
-                          console.log('Parameters not in expected format:', tool.paramDetails.params);
-                        }
-                      } catch (err) {
-                        console.error('Error processing parameters:', err);
-                      }
-                      
-                      console.groupEnd();
-                    }
-                  } else {
-                    console.log('No parameter details found');
-                  }
-                  
-                  // Log the raw tool data
-                  console.log('Raw tool data:', tool.rawTool);
-                  
-                  console.groupEnd();
-                }
-              }
-            });
-            
-            if (!found) {
-              console.log(`Tool "${toolName}" not found in any layer`);
-            }
-          })
-          .catch(error => {
-            console.error('Error searching for tool:', error);
-          });
-      }
-    };
-    
-    console.log('Debug functions added to window.debugMusicAipi');
-    console.log('Available commands:');
-    console.log('  window.debugMusicAipi.showTools() - Show all tools and their parameters');
-    console.log('  window.debugMusicAipi.findTool("tool-name") - Find a specific tool by name');
+    // Request initial playback state and devices
+    socketRef.current.emit('playback-command', { action: 'get-playback-state' });
+    socketRef.current.emit('playback-command', { action: 'get-devices' });
     
     return () => {
       console.log('cleaning up socket connection');
       socketRef.current.disconnect();
-      
-      // Clean up global debug function
-      delete window.debugMusicAipi;
     };
-  }, []);
+  };
   
   const sendMessage = (message) => {
-    if (message.trim() === '') return;
+    if (message.trim() === '' || !socketRef.current) return;
     
     console.log('sending message to server:', message);
     const userMessage = { role: 'user', content: message };
@@ -218,18 +146,33 @@ const App = () => {
     localStorage.removeItem(STORAGE_KEY);
   };
   
-  const toggleDebug = () => {
-    const newState = !showDebug;
-    console.log('toggling debug mode:', newState ? 'enabled' : 'disabled');
-    setShowDebug(newState);
+  const sendPlaybackCommand = (action, params = {}) => {
+    if (!socketRef.current) {
+      console.error('Cannot send playback command: socket not connected');
+      return;
+    }
+    
+    console.log(`sending playback command: ${action}`, params);
+    socketRef.current.emit('playback-command', { action, params });
   };
+  
+  const handleLoginSuccess = (userData) => {
+    setIsAuthenticated(true);
+    initializeSocket();
+  };
+  
+  const handlePlayerExpandToggle = (expanded) => {
+    setPlayerExpanded(expanded);
+  };
+  
+  // If not authenticated, show the auth screen
+  if (!isAuthenticated) {
+    return <SpotifyAuthScreen onLoginSuccess={handleLoginSuccess} />;
+  }
   
   return (
     <div className="app">
       <Header 
-        connected={connected} 
-        showDebug={showDebug}
-        toggleDebug={toggleDebug}
         clearHistory={clearHistory}
         messageCount={messages.length}
       />
@@ -238,8 +181,19 @@ const App = () => {
           messages={messages} 
           sendMessage={sendMessage} 
           isLoading={isLoading}
+          hideInput={playerExpanded}
         />
       </main>
+      <footer className="app-footer">
+        {playbackState && (
+          <PlaybackControls 
+            playbackState={playbackState}
+            playbackDevices={playbackDevices}
+            sendPlaybackCommand={sendPlaybackCommand}
+            onExpandToggle={handlePlayerExpandToggle}
+          />
+        )}
+      </footer>
     </div>
   );
 };

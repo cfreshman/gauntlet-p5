@@ -2,14 +2,35 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
+  background-color: var(--bg-color);
+  color: var(--text-color);
   max-width: 800px;
   margin: 0 auto;
+  width: 100%;
 }
 
 .main-content {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
+  padding: 0 10px;
   display: flex;
   flex-direction: column;
-  padding: 0 16px;
+}
+
+.main-content.with-player {
+  padding-bottom: 60px; /* Height of collapsed player */
+}
+
+.main-content.with-player-expanded {
+  padding-bottom: 320px; /* Adjusted height of expanded player */
+}
+
+.app-footer {
+  width: 100%;
+  background-color: var(--bg-color);
+}
+
+/* Add styles for when the input is hidden */
+.chat-interface.input-hidden .messages-container {
+  padding-bottom: 10px;
 } 

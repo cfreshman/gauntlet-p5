@@ -4,6 +4,10 @@
   height: 100%;
 }
 
+.chat-interface.input-hidden .messages-container {
+  padding-bottom: 0;
+}
+
 .messages-container {
   flex: 1;
   overflow-y: auto;

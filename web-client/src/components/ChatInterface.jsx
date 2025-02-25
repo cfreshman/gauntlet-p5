@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import '../styles/chat-interface.css';
 
-const ChatInterface = ({ messages, sendMessage, isLoading }) => {
+const ChatInterface = ({ messages, sendMessage, isLoading, hideInput = false }) => {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
   
@@ -46,7 +46,7 @@ const ChatInterface = ({ messages, sendMessage, isLoading }) => {
   }, [messages]);
   
   return (
-    <div className="chat-interface">
+    <div className={`chat-interface ${hideInput ? 'input-hidden' : ''}`}>
       <div className="messages-container">
         {messages.length === 0 ? (
           <div className="empty-state">
@@ -75,24 +75,26 @@ const ChatInterface = ({ messages, sendMessage, isLoading }) => {
         <div ref={messagesEndRef} />
       </div>
       
-      <form className="input-form" onSubmit={handleSubmit}>
-        <input
-          type="text"
-          value={input}
-          onChange={handleInputChange}
-          placeholder="type your message..."
-          disabled={isLoading}
-          className="message-input"
-        />
-        <button 
-          type="submit" 
-          disabled={isLoading || !input.trim()} 
-          className="send-button"
-          onClick={() => console.log('Send button clicked')}
-        >
-          send
-        </button>
-      </form>
+      {!hideInput && (
+        <form className="input-form" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            value={input}
+            onChange={handleInputChange}
+            placeholder="type your message..."
+            disabled={isLoading}
+            className="message-input"
+          />
+          <button 
+            type="submit" 
+            disabled={isLoading || !input.trim()} 
+            className="send-button"
+            onClick={() => console.log('Send button clicked')}
+          >
+            send
+          </button>
+        </form>
+      )}
     </div>
   );
 };

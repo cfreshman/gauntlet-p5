@@ -10,8 +10,14 @@ buttons should have rounded ends, short vertical height compared to width
 - make sure each code change is in the correct folder / sub-project
 - add packages by installing [package name with no version]. DO NOT EDIT VERSIONS IN PACKAGE.JSON
 - do not make up text for me. you are not good at that. you write too much
-- lowercase all text (except for Proper Nouns). the UIs should be in lowercase monospace font
+- lowercase all text (except for Proper Nouns). the UIs should be in lowercase monospace font. for example, the app name is "music-AIPI"
 - never delete functioning code. if you aren't sure what code is doing, ask me. it probably exists for a reason
 - do not use animations
 - do not change things i didn't ask for
 - accent color is only for special things. not regular text
+
+- we're using Phosphor Icons in the web client. before you do - design guidelines - inline icons should be sized to the text size. but larger areas of the UI can contain larger icons
+
+
+
+am i going to have to restart the entire project. the point of this is to have a generic conversational agent that is presented with AIPI tool calls and is able to figure out how to serve the user's requests itself. read spotify-aipi-tools. you're too focused on music recommendation. this is an entire music interface for discovering, saving, and playing music - using Spotify and Last.fm. do you understand
