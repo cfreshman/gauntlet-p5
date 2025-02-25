@@ -1,51 +1,113 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-const path = require('path');
-const { processUserMessage, getDebugInfo } = require('./chat/message-processor');
-const mcpClient = require('./utils/mcp-client');
-const logger = require('./utils/logger');
-const toolFormatter = require('./utils/tool-formatter');
-const spotifyClient = require('./utils/spotifyClient');
-const session = require('express-session');
+import express from 'express';
+import cors from 'cors';
+import { createServer } from 'http';
+import http from 'http';
+import { Server } from 'socket.io';
+import { config } from 'dotenv';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+import path from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: path.join(__dirname, '../.env') });
+
+import logger from './utils/logger.js';
+import mcpClient from './utils/mcp-client.js';
+import spotifyClient from './utils/spotifyClient.js';
+import { processUserMessage, generateSystemPrompt } from './chat/message-processor.js';
+import toolFormatter from './utils/tool-formatter.js';
+import session from 'express-session';
+import fetch from 'node-fetch';
 
 // create express app
 const app = express();
 app.use(cors({
   origin: ['http://localhost:3000', 'http://localhost:3004'],
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+  exposedHeaders: ['set-cookie']
 }));
 app.use(express.json());
 
 // Set up session middleware
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'music-aipi-secret',
-  resave: false,
-  saveUninitialized: true,
-  cookie: { secure: process.env.NODE_ENV === 'production' }
+  resave: true,
+  saveUninitialized: false,
+  cookie: { 
+    secure: false,
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000,
+    path: '/',
+    httpOnly: true
+  },
+  name: 'connect.sid'
 });
 
 // Store the session middleware for access to the session store
 app.use(sessionMiddleware);
-app.set('sessionStore', sessionMiddleware.store);
+
+// Make session store accessible
+const sessionStore = sessionMiddleware.store;
+app.set('sessionStore', sessionStore);
 
 // serve static files from web-client/dist if they exist
 app.use(express.static(path.join(__dirname, '../web-client/dist')));
 
 // create http server and socket.io instance
-const server = http.createServer(app);
+const server = createServer(app);
 const io = new Server(server, {
   cors: {
     origin: ['http://localhost:3000', 'http://localhost:3004'],
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
+    methods: ['GET', 'POST', 'OPTIONS'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+    exposedHeaders: ['set-cookie']
+  },
+  allowEIO3: true,
+  path: '/socket.io',
+  transports: ['polling', 'websocket'],
+  cookie: {
+    name: 'io',
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: false, // Set to false for development
+    domain: 'localhost'  // Added domain
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  connectTimeout: 45000
 });
 
 // Use the session middleware with socket.io
 const wrap = middleware => (socket, next) => middleware(socket.request, {}, next);
 io.use(wrap(sessionMiddleware));
+
+// Add error handling middleware for socket.io
+io.engine.on("connection_error", (err) => {
+  console.error('Socket.io connection error:', err);
+});
+
+// Add middleware to handle authentication
+io.use((socket, next) => {
+  const session = socket.request.session;
+  if (!session) {
+    return next(new Error('Session not found'));
+  }
+  
+  // Store session ID in socket for later use
+  socket.sessionID = session.id;
+  
+  // Log successful session attachment
+  console.log(`Session attached to socket ${socket.id}:`, {
+    sessionId: session.id,
+    userId: session.spotifyUserId || 'not authenticated'
+  });
+  
+  next();
+});
 
 // Track active connections
 let activeConnections = 0;
@@ -176,224 +238,155 @@ app.get('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// socket.io connection handling
-io.on('connection', (socket) => {
-  activeConnections++;
-  console.log(`[${new Date().toISOString()}] Client connected: ${socket.id}`);
-  console.log(`Active connections: ${activeConnections}`);
-  
-  // Store the socket ID with the session ID
-  if (socket.request.session.id) {
-    socketsBySession[socket.request.session.id] = socket.id;
-  }
-  
-  socket.on('message', async (message) => {
-    console.log(`[${new Date().toISOString()}] Message from ${socket.id}: "${message}"`);
-    
-    try {
-      console.log(`Processing message from ${socket.id}...`);
-      // process the message using the existing chat processor
-      const response = await processUserMessage(message);
-      
-      // Get debug info
-      const debugInfo = getDebugInfo();
-      
-      // Send the response
-      console.log(`Sending response to ${socket.id}, length: ${response.length} characters`);
-      socket.emit('message', response);
-      
-      // Send debug info for browser console logging
-      socket.emit('debug-log', {
-        query: message,
-        toolCall: debugInfo.lastToolCall,
-        toolResult: debugInfo.lastToolResult,
-        timestamp: new Date().toISOString(),
-        details: {
-          toolName: debugInfo.lastToolCall ? debugInfo.lastToolCall.split(' with args:')[0] : null,
-          fullToolResult: debugInfo.lastToolResult,
-          mcpStatus: mcpClient.getConnectionStatus(),
-          toolsCount: {
-            layer1: mcpClient.tools.layer1?.length || 0,
-            layer2: mcpClient.tools.layer2?.length || 0,
-            layer3: mcpClient.tools.layer3?.length || 0
-          }
-        },
-        // Include the call tree if available
-        callTree: global.lastCallTree || null,
-        // Include tool descriptions for debugging
-        toolDescriptions: global.lastToolDescriptions || null
-      });
-      
-      console.log(`Completed request for ${socket.id}`);
-    } catch (error) {
-      console.error(`[${new Date().toISOString()}] Error processing message for ${socket.id}:`, error);
-      socket.emit('message', 'sorry, there was an error processing your request.');
-      
-      // Send error info for browser console logging
-      socket.emit('debug-log', {
-        error: error.message,
-        stack: error.stack,
-        timestamp: new Date().toISOString()
-      });
+// Socket.IO connection handling
+io.on('connection', async (socket) => {
+  try {
+    // Get session ID from socket
+    const sessionId = socket.request.session?.id;
+    if (!sessionId) {
+      logger.error('No session ID found for socket connection');
+      socket.disconnect();
+      return;
     }
-  });
-  
-  // Handle playback control commands
-  socket.on('playback-command', async (command) => {
-    try {
-      const { action, params = {} } = command;
-      
-      // Get user ID directly from the socket's session
-      const session = socket.request.session;
-      const userId = session.spotifyUserId;
-      
-      if (!userId) {
-        socket.emit('playback-error', { error: 'Not authenticated with Spotify' });
-        return;
-      }
-      
-      let result;
-      
+    
+    // Get user ID directly from socket session
+    const userId = socket.request.session?.spotifyUserId;
+    if (!userId) {
+      logger.error('No user ID found in session:', sessionId);
+      socket.disconnect();
+      return;
+    }
+    
+    // Store socket connection
+    socketsBySession[sessionId] = socket.id;
+    activeConnections++;
+    
+    logger.info(`Client connected - Session: ${sessionId}, User: ${userId}, Active connections: ${activeConnections}`);
+    
+    // Handle incoming messages
+    socket.on('user_message', async (data) => {
       try {
+        logger.info('Received message from client:', { 
+          messageLength: data.message.length,
+          userId,
+          sessionId 
+        });
+        
+        // Process the message
+        const response = await processUserMessage(data.message, userId);
+        
+        // Send response back to client
+        socket.emit('assistant_response', {
+          type: 'message',
+          content: response
+        });
+      } catch (error) {
+        logger.error('Error processing message:', { 
+          error: error.message,
+          userId,
+          sessionId
+        });
+        
+        socket.emit('assistant_response', {
+          type: 'error',
+          content: {
+            type: "text",
+            text: `i'm sorry, something went wrong while processing your message. please try again.`
+          }
+        });
+      }
+    });
+
+    // Handle playback commands
+    socket.on('playback-command', async (data) => {
+      try {
+        const { action, params = {} } = data;
+        logger.info('Received playback command:', { action, params, userId });
+
+        let result;
         switch (action) {
           case 'get-playback-state':
-            result = await spotifyClient.getPlaybackState(params.market, userId);
+            result = await spotifyClient.getPlaybackState(null, userId);
             socket.emit('playback-state', result);
             break;
-            
+
           case 'get-devices':
             result = await spotifyClient.getAvailableDevices(userId);
             socket.emit('playback-devices', result);
             break;
-            
+
           case 'play':
-            result = await spotifyClient.startResumePlayback(
-              params.deviceId, 
-              params.contextUri, 
-              params.uris, 
-              params.offset, 
-              params.positionMs, 
+            await spotifyClient.startResumePlayback(
+              params.deviceId,
+              params.contextUri,
+              params.uris,
+              params.offset,
+              params.positionMs,
               userId
             );
-            socket.emit('playback-result', { action, success: true });
+            socket.emit('playback-result', { success: true });
             break;
-            
+
           case 'pause':
-            result = await spotifyClient.pausePlayback(params.deviceId, userId);
-            socket.emit('playback-result', { action, success: true });
+            await spotifyClient.pausePlayback(params.deviceId, userId);
+            socket.emit('playback-result', { success: true });
             break;
-            
+
           case 'next':
-            result = await spotifyClient.skipToNext(params.deviceId, userId);
-            socket.emit('playback-result', { action, success: true });
+            await spotifyClient.skipToNext(params.deviceId, userId);
+            socket.emit('playback-result', { success: true });
             break;
-            
+
           case 'previous':
-            result = await spotifyClient.skipToPrevious(params.deviceId, userId);
-            socket.emit('playback-result', { action, success: true });
+            await spotifyClient.skipToPrevious(params.deviceId, userId);
+            socket.emit('playback-result', { success: true });
             break;
-            
+
           case 'seek':
-            result = await spotifyClient.seekToPosition(params.positionMs, params.deviceId, userId);
-            socket.emit('playback-result', { action, success: true });
+            await spotifyClient.seekToPosition(params.positionMs, params.deviceId, userId);
+            socket.emit('playback-result', { success: true });
             break;
-            
+
           case 'volume':
-            result = await spotifyClient.setPlaybackVolume(params.volumePercent, params.deviceId, userId);
-            socket.emit('playback-result', { action, success: true });
+            await spotifyClient.setPlaybackVolume(params.volumePercent, params.deviceId, userId);
+            socket.emit('playback-result', { success: true });
             break;
-            
+
           case 'transfer':
-            result = await spotifyClient.transferPlayback(params.deviceId, params.play, userId);
-            socket.emit('playback-result', { action, success: true });
+            await spotifyClient.transferPlayback(params.deviceId, params.play || false, userId);
+            socket.emit('playback-result', { success: true });
             break;
-            
+
           default:
-            socket.emit('playback-error', { error: `Unknown action: ${action}` });
+            socket.emit('playback-error', { error: `Unknown command: ${action}` });
         }
-      } catch (actionError) {
-        // Handle specific action errors
-        console.error(`[${new Date().toISOString()}] Error handling playback action ${action}:`, actionError.message);
-        
-        // Send the error to the client
-        socket.emit('playback-error', { 
-          error: actionError.message,
-          action
-        });
-        
-        // For certain errors, still refresh the playback state
+
+        // After any successful command, get the latest playback state
         if (action !== 'get-playback-state' && action !== 'get-devices') {
-          try {
-            // Get the updated playback state after an error
-            const updatedState = await spotifyClient.getPlaybackState(null, userId);
-            socket.emit('playback-state', updatedState);
-          } catch (stateError) {
-            // Ignore errors when getting the updated state
-            console.error(`[${new Date().toISOString()}] Error getting updated playback state:`, stateError.message);
-          }
+          const newState = await spotifyClient.getPlaybackState(null, userId);
+          socket.emit('playback-state', newState);
         }
-      }
-    } catch (error) {
-      console.error(`[${new Date().toISOString()}] Error handling playback command:`, error);
-      socket.emit('playback-error', { error: error.message });
-    }
-  });
-  
-  socket.on('disconnect', () => {
-    activeConnections--;
-    console.log(`[${new Date().toISOString()}] Client disconnected: ${socket.id}`);
-    console.log(`Active connections: ${activeConnections}`);
-    
-    // Remove socket from session mapping
-    for (const sessionId in socketsBySession) {
-      if (socketsBySession[sessionId] === socket.id) {
-        delete socketsBySession[sessionId];
-        break;
-      }
-    }
-  });
-  
-  // Log errors
-  socket.on('error', (error) => {
-    console.error(`[${new Date().toISOString()}] Socket error for ${socket.id}:`, error);
-  });
-});
-
-// Helper function to get session ID from socket
-function getSessionIdFromSocket(socket) {
-  if (socket.handshake.headers.cookie) {
-    const cookies = socket.handshake.headers.cookie.split(';');
-    const sessionCookie = cookies.find(cookie => cookie.trim().startsWith('connect.sid='));
-    if (sessionCookie) {
-      return sessionCookie.split('=')[1].split('.')[0].trim();
-    }
-  }
-  return null;
-}
-
-// Helper function to get user ID from session
-function getUserIdFromSession(sessionId) {
-  if (!sessionId) return null;
-  
-  // Find the session in the session store
-  const sessionKey = `sess:${sessionId}`;
-  
-  // Access the session store through the app's session middleware
-  if (app.get('sessionStore') && app.get('sessionStore').sessions) {
-    const sessionData = app.get('sessionStore').sessions[sessionKey];
-    
-    if (sessionData) {
-      try {
-        const parsedSession = JSON.parse(sessionData);
-        return parsedSession.spotifyUserId || null;
       } catch (error) {
-        console.error(`[${new Date().toISOString()}] Error parsing session:`, error);
+        logger.error('Error handling playback command:', { 
+          error: error.message,
+          action: data.action,
+          userId 
+        });
+        socket.emit('playback-error', { error: error.message });
       }
-    }
+    });
+    
+    // Handle disconnection
+    socket.on('disconnect', () => {
+      delete socketsBySession[sessionId];
+      activeConnections--;
+      logger.info(`Client disconnected - Session: ${sessionId}, User: ${userId}, Active connections: ${activeConnections}`);
+    });
+  } catch (error) {
+    logger.error('Error in socket connection:', error);
+    socket.disconnect();
   }
-  
-  return null;
-}
+});
 
 // Playback API endpoints
 app.get('/api/playback/state', (req, res) => {
@@ -625,11 +618,62 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../web-client/dist/index.html'));
 });
 
+// Check if MCP servers are ready
+async function waitForMcpServers() {
+  const maxRetries = 5;
+  const retryDelay = 2000;
+  const layers = [3001, 3002, 3003];
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[${new Date().toISOString()}] Checking MCP servers health (attempt ${attempt}/${maxRetries})...`);
+      
+      // Check all layers
+      const results = await Promise.all(layers.map(async (port) => {
+        return new Promise((resolve) => {
+          const req = http.request({
+            hostname: 'localhost',
+            port: port,
+            path: '/health',
+            method: 'GET'
+          }, (res) => {
+            resolve(res.statusCode === 200);
+          });
+          
+          req.on('error', () => {
+            resolve(false);
+          });
+          
+          req.end();
+        });
+      }));
+      
+      if (results.every(ok => ok)) {
+        console.log(`[${new Date().toISOString()}] All MCP servers are ready`);
+        return true;
+      }
+      
+      console.log(`[${new Date().toISOString()}] Some MCP servers not ready yet, retrying in ${retryDelay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] Error checking MCP servers:`, error);
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
+  }
+  
+  throw new Error('MCP servers not ready after maximum retries');
+}
+
 // Initialize MCP client before starting server
 async function startServer() {
   try {
     // Check Spotify credentials
     await checkSpotifyCredentials();
+    
+    // Wait for MCP servers to be ready
+    await waitForMcpServers();
     
     // Initialize MCP client
     console.log(`[${new Date().toISOString()}] Initializing MCP client...`);
@@ -701,4 +745,8 @@ server.on('error', (error) => {
   console.error(`[${new Date().toISOString()}] Server error:`, error);
 });
 
-module.exports = { app, server, io }; 
+export {
+  startServer,
+  waitForMcpServers,
+  checkSpotifyCredentials
+}; 

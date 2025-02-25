@@ -5,28 +5,10 @@
  * it handles connections, tool discovery, and tool execution.
  */
 
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
-const logger = require('./logger');
-
-// try to load SSE client transport
-let SSEClientTransport;
-try {
-  const sseModule = require('@modelcontextprotocol/sdk/client/sse.js');
-  SSEClientTransport = sseModule.SSEClientTransport;
-  logger.debug('SSEClientTransport loaded successfully for MCP client');
-} catch (error) {
-  logger.debug('SSEClientTransport not available for MCP client:', error.message);
-}
-
-// try to load StdioClientTransport as fallback
-let StdioClientTransport;
-try {
-  const stdioModule = require('@modelcontextprotocol/sdk/client/stdio.js');
-  StdioClientTransport = stdioModule.StdioClientTransport;
-  logger.debug('StdioClientTransport loaded successfully for MCP client');
-} catch (error) {
-  logger.debug('StdioClientTransport not available for MCP client:', error.message);
-}
+import logger from './logger.js';
+import toolFormatter from './tool-formatter.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
 // MCP layer server URLs
 const MCP_SERVERS = {
@@ -71,13 +53,8 @@ class McpClient {
     logger.info('initializing MCP client connections...');
     
     try {
-      // initialize layer 1 client
       await this.initializeLayer('layer1');
-      
-      // initialize layer 2 client
       await this.initializeLayer('layer2');
-      
-      // initialize layer 3 client
       await this.initializeLayer('layer3');
       
       this.initialized = true;
@@ -94,52 +71,60 @@ class McpClient {
    * @returns {Promise<void>}
    */
   async initializeLayer(layer) {
-    try {
-      logger.debug(`initializing ${layer} client...`);
-      
-      // create client
-      this.clients[layer] = new Client(
-        {
-          name: `web-client-to-${layer}`,
-          version: '1.0.0'
-        },
-        {
-          capabilities: {
-            prompts: {},
-            resources: {},
-            tools: {}
+    const maxRetries = 3;
+    const retryDelay = 2000; // 2 seconds between retries
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.debug(`initializing ${layer} client (attempt ${attempt}/${maxRetries})...`);
+        
+        // create client
+        this.clients[layer] = new Client(
+          {
+            name: `web-client-to-${layer}`,
+            version: '1.0.0'
+          },
+          {
+            capabilities: {
+              prompts: {},
+              resources: {},
+              tools: {}
+            }
           }
+        );
+        
+        // create transport
+        const baseUrl = MCP_SERVERS[layer];
+        const transport = new SSEClientTransport(
+          new URL(`${baseUrl}/sse`)
+        );
+        
+        // Connect with timeout
+        await Promise.race([
+          this.clients[layer].connect(transport),
+          new Promise((_, reject) => setTimeout(() => 
+            reject(new Error(`Connection timeout after 10s for ${layer}`)), 10000))
+        ]);
+
+        logger.info(`${layer} client connected successfully`);
+        this.connected[layer] = true;
+
+        // Fetch available tools
+        await this.refreshTools(layer);
+        return;
+
+      } catch (error) {
+        logger.error(`error initializing ${layer} client (attempt ${attempt}/${maxRetries}):`, error);
+        this.connected[layer] = false;
+        
+        if (attempt < maxRetries) {
+          logger.info(`retrying ${layer} connection in ${retryDelay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
-      );
-      
-      // create transport
-      let transport;
-      const endpoint = `${MCP_SERVERS[layer]}/mcp/events`;
-      
-      if (SSEClientTransport) {
-        transport = new SSEClientTransport({ endpoint });
-      } else if (StdioClientTransport) {
-        const layerNum = layer.replace('layer', '');
-        transport = new StdioClientTransport({
-          command: 'node',
-          args: ['--no-deprecation', 'src/mcp/demo.js', layerNum],
-          cwd: process.cwd()
-        });
-      } else {
-        throw new Error('no transport available for MCP client');
       }
-      
-      // connect to server
-      await this.clients[layer].connect(transport);
-      this.connected[layer] = true;
-      logger.info(`${layer} client connected successfully`);
-      
-      // fetch available tools
-      await this.refreshTools(layer);
-    } catch (error) {
-      logger.error(`error initializing ${layer} client:`, error.message);
-      this.connected[layer] = false;
     }
+    
+    logger.error(`failed to initialize ${layer} client after ${maxRetries} attempts`);
   }
   
   /**
@@ -237,9 +222,44 @@ class McpClient {
   getConnectionStatus() {
     return this.connected;
   }
+  
+  /**
+   * format all tools for LLM consumption
+   * @param {Object} options - formatting options
+   * @returns {string} - formatted tools description
+   */
+  async formatAllToolsForLLM(options = {}) {
+    try {
+      // ensure we have the latest tools
+      await this.refreshAllTools();
+      
+      // use the tool formatter utility
+      return toolFormatter.formatAllToolsForLLM(this.tools, options);
+    } catch (error) {
+      logger.error('error formatting tools for LLM:', error.message);
+      return "Error: Could not format tools for LLM";
+    }
+  }
+  
+  /**
+   * refresh tools for all connected layers
+   * @returns {Promise<void>}
+   */
+  async refreshAllTools() {
+    const refreshPromises = [];
+    
+    for (const layer of ['layer1', 'layer2', 'layer3']) {
+      if (this.connected[layer]) {
+        refreshPromises.push(this.refreshTools(layer));
+      }
+    }
+    
+    await Promise.all(refreshPromises);
+    logger.info('refreshed tools for all connected layers');
+  }
 }
 
 // create singleton instance
 const mcpClient = new McpClient();
 
-module.exports = mcpClient; 
+export default mcpClient; 

@@ -3,7 +3,7 @@
  * Handles expert-level natural language processing
  */
 
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 class Layer3Client extends Client {
   /**
@@ -31,4 +31,4 @@ class Layer3Client extends Client {
   }
 }
 
-module.exports = { Layer3Client }; 
+export { Layer3Client }; 

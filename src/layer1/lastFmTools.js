@@ -5,9 +5,9 @@
  * these tools provide direct access to last.fm api endpoints with guaranteed deterministic behavior.
  */
 
-const lastfmClient = require('../utils/lastfmClient');
-const logger = require('../utils/logger');
-const { z } = require('zod');
+import lastfmClient from '../utils/lastfmClient.js';
+import logger from '../utils/logger.js';
+import { z } from 'zod';
 
 /**
  * register last.fm tools with an mcp server
@@ -235,6 +235,4 @@ function registerLastFmTools(server) {
   logger.info('last.fm tools registered successfully');
 }
 
-module.exports = {
-  registerLastFmTools
-}; 
+export { registerLastFmTools }; 

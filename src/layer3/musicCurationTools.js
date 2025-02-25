@@ -4,9 +4,15 @@
  * This module provides expert-level music curation tools that build on Layer 1 and Layer 2 tools.
  */
 
-const logger = require('../utils/logger');
-const spotifyClient = require('../utils/spotifyClient');
-const { OpenAI } = require('openai');
+import { config } from 'dotenv';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+import logger from '../utils/logger.js';
+import spotifyClient from '../utils/spotifyClient.js';
+import { OpenAI } from 'openai';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: dirname(dirname(__dirname)) + '/.env' });
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -759,6 +765,4 @@ async function analyzeCollection(tracks, theme, preferences, context) {
   }
 }
 
-module.exports = {
-  registerMusicCurationTools
-}; 
+export { registerMusicCurationTools }; 

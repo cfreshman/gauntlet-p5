@@ -3,7 +3,7 @@
  * Handles agentic operations and text analysis
  */
 
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 class Layer2Client extends Client {
   /**
@@ -31,4 +31,4 @@ class Layer2Client extends Client {
   }
 }
 
-module.exports = { Layer2Client }; 
+export { Layer2Client }; 

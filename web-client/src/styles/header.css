@@ -1,6 +1,36 @@
 .header {
-  padding: 16px;
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--primary-bg);
   border-bottom: 1px solid var(--border-color);
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: normal;
+  font-family: monospace;
+  color: var(--primary-text);
+}
+
+.clear-button {
+  background: none;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--primary-text);
+  opacity: 0.6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.clear-button:hover {
+  opacity: 1;
+  background: var(--secondary-bg);
 }
 
 .header-content {

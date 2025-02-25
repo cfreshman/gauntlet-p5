@@ -2,53 +2,36 @@
  * Layer 3 (Expert) MCP Server Implementation
  * 
  * This file implements the expert MCP server for Layer 3,
- * which provides LLM-only orchestration capabilities.
+ * which provides high-level, intelligent operations.
  */
-const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
-const { z } = require('zod');
-const OpenAI = require('openai');
-const logger = require('../utils/logger');
-const { MCPBoundaryError } = require('../utils/errors');
-const { registerMusicCurationTools } = require('../layer3/musicCurationTools');
-const { registerMusicAipiAgent } = require('../layer3/musicAipiAgent');
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import express from 'express';
+import cors from 'cors';
+import { z } from 'zod';
+import OpenAI from 'openai';
+import logger from '../utils/logger.js';
+import { MCPBoundaryError } from '../utils/errors.js';
+import { registerMusicCurationTools } from '../layer3/musicCurationTools.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 // Initialize OpenAI API client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Try to load SSE client transport
-let SSEClientTransport;
-try {
-  const sseModule = require('@modelcontextprotocol/sdk/client/sse.js');
-  SSEClientTransport = sseModule.SSEClientTransport;
-  logger.debug('SSEClientTransport loaded successfully for Layer3Server');
-} catch (error) {
-  // Only log as debug since this is expected in some environments
-  logger.debug('SSEClientTransport not available for Layer3Server:', error.message);
-}
-
-// Try to load StdioClientTransport as fallback
-let StdioClientTransport;
-try {
-  const stdioModule = require('@modelcontextprotocol/sdk/client/stdio.js');
-  StdioClientTransport = stdioModule.StdioClientTransport;
-  logger.debug('StdioClientTransport loaded successfully for Layer3Server');
-} catch (error) {
-  // Only log as debug since this is expected in some environments
-  logger.debug('StdioClientTransport not available for Layer3Server:', error.message);
-}
-
 /**
  * Layer 3 MCP Server
- * Provides expert-level LLM-only orchestration capabilities
+ * Provides expert-level tools and resources that combine multiple capabilities
  */
 class Layer3Server {
   /**
    * Create a new Layer 3 MCP Server
    * @param {Object} options - Server configuration options
    * @param {string} options.layer2Endpoint - Endpoint URL for Layer 2 API
-   * @param {string} options.layer1Endpoint - Endpoint URL for Layer 1 API (optional)
+   * @param {string} options.layer1Endpoint - Endpoint URL for Layer 1 API
    */
   constructor(options = {}) {
     this.server = new McpServer({
@@ -56,40 +39,41 @@ class Layer3Server {
       version: options.version || '1.0.0'
     });
     
+    // Create express app
+    this.app = express();
+    this.app.use(cors());
+    
+    // Track current transport
+    this.transport = null;
+    
+    // Store layer endpoints
+    this.layer2Endpoint = options.layer2Endpoint;
+    this.layer1Endpoint = options.layer1Endpoint;
+    
+    // Initialize clients
     this.layer2Client = null;
     this.layer1Client = null;
     
-    // Register default tools and prompts first, before any connections
+    if (this.layer2Endpoint) {
+      logger.info(`Layer 3 server initialized with Layer 2 endpoint: ${this.layer2Endpoint}`);
+      this.initializeLayer2Client();
+    }
+    
+    if (this.layer1Endpoint) {
+      logger.info(`Layer 3 server initialized with Layer 1 endpoint: ${this.layer1Endpoint}`);
+      this.initializeLayer1Client();
+    }
+    
+    // Register Layer 3 tools
+    registerMusicCurationTools(this.server, this.layer1Client, this.layer2Client);
+    
     this.registerDefaultTools();
     this.registerDefaultPrompts();
     
-    // Initialize Layer 2 client if endpoint is provided
-    if (options.layer2Endpoint) {
-      this.layer2Endpoint = options.layer2Endpoint;
-      logger.info(`Layer 3 server initialized with Layer 2 endpoint: ${this.layer2Endpoint}`);
-      this.initializeLayer2Client();
-    } else {
-      logger.info('Layer 3 server initialized without Layer 2 endpoint');
-    }
+    // Set up endpoints
+    this.setupEndpoints();
     
-    // Initialize Layer 1 client if endpoint is provided
-    if (options.layer1Endpoint) {
-      this.layer1Endpoint = options.layer1Endpoint;
-      logger.info(`Layer 3 server initialized with Layer 1 endpoint: ${this.layer1Endpoint}`);
-      this.initializeLayer1Client();
-    } else {
-      logger.info('Layer 3 server initialized without Layer 1 endpoint');
-    }
-    
-    // Register Layer 3 tools with null clients initially
-    // We'll update the clients later when they're initialized
-    registerMusicCurationTools(this.server, null, null);
-    registerMusicAipiAgent(this.server, null, null);
-    
-    logger.info(`Layer 3 MCP Server initialized`);
-    
-    // Set up client update mechanism
-    this.setupClientUpdateInterval();
+    logger.info('Layer 3 MCP Server initialized');
   }
   
   /**
@@ -98,12 +82,12 @@ class Layer3Server {
    */
   async initializeLayer2Client() {
     try {
-      const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+      logger.info(`Initializing Layer 2 client...`);
       
-      // Create Layer 2 client
+      // Create client
       this.layer2Client = new Client(
         {
-          name: 'layer3-to-layer2-client',
+          name: 'layer3-to-layer2',
           version: '1.0.0'
         },
         {
@@ -115,28 +99,26 @@ class Layer3Server {
         }
       );
       
-      // Connect to Layer 2 server
-      let transport;
-      if (SSEClientTransport) {
-        transport = new SSEClientTransport({ endpoint: this.layer2Endpoint });
-      } else if (StdioClientTransport) {
-        transport = new StdioClientTransport({
-          command: 'node',
-          args: ['--no-deprecation', 'src/mcp/demo.js', '2'],
-          cwd: process.cwd()
-        });
-      } else {
-        throw new Error('No transport available for Layer 2 client');
-      }
+      // Create SSE transport to Layer 2
+      const transport = new SSEClientTransport(
+        new URL('http://localhost:3002/mcp/events')
+      );
       
+      // Connect to server
       await this.layer2Client.connect(transport);
-      logger.info('Layer 3 server connected to Layer 2 server');
+      logger.info('Layer 2 client connected successfully');
       
-      // List available tools from Layer 2
+      // Update the tools with the initialized client
+      registerMusicCurationTools(this.server, this.layer1Client, this.layer2Client);
+      logger.info('Layer 3 tools updated with initialized Layer 2 client');
+      
+      // Query available tools
       await this.queryLayer2Tools();
+      
+      return this.layer2Client;
     } catch (error) {
       logger.error('Error initializing Layer 2 client:', error.message);
-      this.layer2Client = null;
+      return null;
     }
   }
   
@@ -146,8 +128,6 @@ class Layer3Server {
    */
   async initializeLayer1Client() {
     try {
-      const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
-      
       // Create Layer 1 client
       this.layer1Client = new Client(
         {
@@ -163,22 +143,18 @@ class Layer3Server {
         }
       );
       
-      // Connect to Layer 1 server
-      let transport;
-      if (SSEClientTransport) {
-        transport = new SSEClientTransport({ endpoint: this.layer1Endpoint });
-      } else if (StdioClientTransport) {
-        transport = new StdioClientTransport({
-          command: 'node',
-          args: ['--no-deprecation', 'src/mcp/demo.js', '1'],
-          cwd: process.cwd()
-        });
-      } else {
-        throw new Error('No transport available for Layer 1 client');
-      }
+      // Create SSE transport to Layer 1
+      const transport = new SSEClientTransport(
+        new URL('http://localhost:3001/mcp/events')
+      );
       
+      // Connect to Layer 1 server
       await this.layer1Client.connect(transport);
       logger.info('Layer 3 server connected to Layer 1 server');
+      
+      // Update the tools with the initialized client
+      registerMusicCurationTools(this.server, this.layer1Client, this.layer2Client);
+      logger.info('Layer 3 tools updated with initialized Layer 1 client');
       
       // List available tools from Layer 1
       await this.queryLayer1Tools();
@@ -764,19 +740,35 @@ class Layer3Server {
     logger.info('Default Layer 3 prompts registered');
   }
   
-  /**
-   * Connect the server to a transport
-   * @param {Object} transport - The transport to connect to
-   * @returns {Promise<void>}
-   */
-  async connect(transport) {
-    try {
-      await this.server.connect(transport);
-      logger.info('Layer 3 MCP Server connected to transport');
-    } catch (error) {
-      logger.error('Error connecting Layer 3 MCP Server', { error: error.message });
-      throw error;
-    }
+  setupEndpoints() {
+    // Add SSE endpoint
+    this.app.get('/sse', (req, res) => {
+      this.transport = new SSEServerTransport('/messages', res);
+      this.server.connect(this.transport);
+    });
+
+    // Add POST endpoint for client-to-server messages
+    this.app.post('/messages', express.json(), (req, res) => {
+      if (this.transport) {
+        this.transport.handlePostMessage(req, res);
+      } else {
+        res.status(400).json({ error: 'No active SSE connection' });
+      }
+    });
+
+    // Add health check endpoint
+    this.app.get('/health', (req, res) => {
+      res.json({ status: 'ok' });
+    });
+  }
+  
+  async start(port = 3003) {
+    return new Promise((resolve) => {
+      this.app.listen(port, () => {
+        logger.info(`Layer 3 server listening on port ${port}`);
+        resolve();
+      });
+    });
   }
   
   /**
@@ -786,41 +778,6 @@ class Layer3Server {
   getServer() {
     return this.server;
   }
-  
-  /**
-   * Set up an interval to update the clients in the global scope once they're initialized
-   * @private
-   */
-  setupClientUpdateInterval() {
-    // Set up global variables to store the clients
-    global.layer3 = global.layer3 || {};
-    global.layer3.layer1Client = null;
-    global.layer3.layer2Client = null;
-    
-    // Check every second if the clients are initialized
-    const interval = setInterval(() => {
-      // Check if Layer 1 client is initialized
-      if (this.layer1Client && !global.layer3.layer1Client) {
-        logger.info('Layer 1 client initialized, updating global reference');
-        global.layer3.layer1Client = this.layer1Client;
-      }
-      
-      // Check if Layer 2 client is initialized
-      if (this.layer2Client && !global.layer3.layer2Client) {
-        logger.info('Layer 2 client initialized, updating global reference');
-        global.layer3.layer2Client = this.layer2Client;
-      }
-      
-      // Log client status
-      logger.debug('Client status update:', {
-        layer1ClientAvailable: !!global.layer3.layer1Client,
-        layer2ClientAvailable: !!global.layer3.layer2Client
-      });
-    }, 1000);
-    
-    // Prevent the interval from keeping the process alive
-    interval.unref();
-  }
 }
 
-module.exports = Layer3Server; 
+export { Layer3Server }; 

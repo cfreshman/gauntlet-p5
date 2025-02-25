@@ -4,8 +4,8 @@
  * This module provides intelligent music analysis tools that build on the Layer 1 Spotify API tools.
  */
 
-const logger = require('../utils/logger');
-const spotifyClient = require('../utils/spotifyClient');
+import logger from '../utils/logger.js';
+import spotifyClient from '../utils/spotifyClient.js';
 
 /**
  * Register music analysis tools with the server
@@ -663,6 +663,4 @@ function generateComparisonSummary(tracksData, aspects) {
   return summary;
 }
 
-module.exports = {
-  registerMusicAnalysisTools
-}; 
+export { registerMusicAnalysisTools }; 

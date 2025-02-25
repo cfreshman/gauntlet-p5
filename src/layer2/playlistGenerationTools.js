@@ -4,8 +4,8 @@
  * This module provides intelligent playlist generation tools that build on the Layer 1 Spotify API tools.
  */
 
-const logger = require('../utils/logger');
-const spotifyClient = require('../utils/spotifyClient');
+import logger from '../utils/logger.js';
+import spotifyClient from '../utils/spotifyClient.js';
 
 /**
  * Register playlist generation tools with the server
@@ -36,7 +36,7 @@ function registerPlaylistGenerationTools(server) {
         description: 'Number of tracks to include in the playlist',
         default: 20
       },
-      public: {
+      isPublic: {
         type: 'boolean',
         description: 'Whether the playlist should be public',
         default: false
@@ -87,7 +87,7 @@ async function generatePlaylist(params) {
     description = '', 
     criteria, 
     trackCount = 20, 
-    public = false 
+    isPublic = false 
   } = params;
   
   try {
@@ -106,7 +106,7 @@ async function generatePlaylist(params) {
     logger.info(`Found ${recommendations.tracks.length} tracks for playlist`);
     
     // Create a new playlist
-    const playlist = await spotifyClient.createPlaylist(name, description, public);
+    const playlist = await spotifyClient.createPlaylist(name, description, isPublic);
     
     // Add tracks to the playlist
     const trackUris = recommendations.tracks.map(track => track.uri);
@@ -401,6 +401,4 @@ function selectSeedTracks(trackIds) {
   return seeds;
 }
 
-module.exports = {
-  registerPlaylistGenerationTools
-}; 
+export { registerPlaylistGenerationTools }; 

@@ -9,82 +9,24 @@ import {
   CaretUp,
   CaretDown
 } from 'phosphor-react';
+import { usePlayback } from '../contexts/PlaybackContext';
 import '../styles/playback-controls.css';
 
-const PlaybackControls = ({ playbackState, playbackDevices, socket, sendPlaybackCommand, onExpandToggle }) => {
+const PlaybackControls = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(false);
   const [volumeError, setVolumeError] = useState(false);
+  const { playbackState, playbackDevices, sendPlaybackCommand, handlePlayerExpandToggle } = usePlayback();
 
   // Update loading state when playbackState changes
   useEffect(() => {
     if (playbackState !== null) {
       setLoading(false);
-      
       // Reset volume error when playback state changes
       setVolumeError(false);
     }
   }, [playbackState]);
-
-  // Fetch playback state and devices on component mount if not provided
-  useEffect(() => {
-    if (!sendPlaybackCommand) return;
-    
-    // If no playback state, request it
-    if (playbackState === null) {
-      sendPlaybackCommand('get-playback-state');
-    }
-    
-    // If no devices, request them
-    if (!playbackDevices || playbackDevices.length === 0) {
-      sendPlaybackCommand('get-devices');
-    }
-    
-    // Set up polling for playback state
-    const interval = setInterval(() => {
-      sendPlaybackCommand('get-playback-state');
-    }, 5000);
-    
-    return () => clearInterval(interval);
-  }, [sendPlaybackCommand, playbackState, playbackDevices]);
-
-  // Handle playback control actions
-  const handlePlaybackAction = (action, params = {}) => {
-    if (!sendPlaybackCommand) {
-      setError('playback control not available');
-      return;
-    }
-    
-    try {
-      // If this is a volume action and we've already had an error, don't try again
-      if (action === 'volume' && volumeError) {
-        return;
-      }
-      
-      sendPlaybackCommand(action, params);
-      
-      // If this is a volume action, set a timeout to check for errors
-      if (action === 'volume') {
-        setTimeout(() => {
-          // If we still have the same volume after a second, assume it worked
-          // This is a simple way to detect if the volume change failed
-          const currentVolume = playbackState?.device?.volume_percent;
-          if (currentVolume !== params.volumePercent) {
-            setVolumeError(true);
-          }
-        }, 1000);
-      }
-    } catch (err) {
-      console.error(`error with playback action ${action}:`, err);
-      setError(`failed to ${action}`);
-      
-      // If this is a volume action, mark that we've had an error
-      if (action === 'volume') {
-        setVolumeError(true);
-      }
-    }
-  };
 
   // Check if the current device supports volume control
   const supportsVolumeControl = () => {
@@ -100,18 +42,14 @@ const PlaybackControls = ({ playbackState, playbackDevices, socket, sendPlayback
       return false;
     }
     
-    return true;
+    return playbackState.device.supports_volume;
   };
 
   // Toggle expanded state
   const toggleExpanded = () => {
     const newExpandedState = !expanded;
     setExpanded(newExpandedState);
-    
-    // Notify parent component of expanded state change
-    if (onExpandToggle) {
-      onExpandToggle(newExpandedState);
-    }
+    handlePlayerExpandToggle(newExpandedState);
   };
 
   // Format time in mm:ss
@@ -169,7 +107,7 @@ const PlaybackControls = ({ playbackState, playbackDevices, socket, sendPlayback
               className="mini-control-button previous" 
               onClick={(e) => {
                 e.stopPropagation();
-                handlePlaybackAction('previous');
+                sendPlaybackCommand('previous');
               }}
             >
               <SkipBack size={16} weight="fill" />
@@ -178,7 +116,7 @@ const PlaybackControls = ({ playbackState, playbackDevices, socket, sendPlayback
               className="mini-control-button play-pause" 
               onClick={(e) => {
                 e.stopPropagation();
-                handlePlaybackAction(is_playing ? 'pause' : 'play');
+                sendPlaybackCommand(is_playing ? 'pause' : 'play');
               }}
             >
               {is_playing ? <Pause size={18} weight="fill" /> : <Play size={18} weight="fill" />}
@@ -187,7 +125,7 @@ const PlaybackControls = ({ playbackState, playbackDevices, socket, sendPlayback
               className="mini-control-button next" 
               onClick={(e) => {
                 e.stopPropagation();
-                handlePlaybackAction('next');
+                sendPlaybackCommand('next');
               }}
             >
               <SkipForward size={16} weight="fill" />
@@ -235,7 +173,7 @@ const PlaybackControls = ({ playbackState, playbackDevices, socket, sendPlayback
                     const rect = e.currentTarget.getBoundingClientRect();
                     const clickPosition = (e.clientX - rect.left) / rect.width;
                     const positionMs = Math.floor(clickPosition * item.duration_ms);
-                    handlePlaybackAction('seek', { positionMs });
+                    sendPlaybackCommand('seek', { positionMs });
                   }}
                 >
                   <div 
@@ -250,21 +188,21 @@ const PlaybackControls = ({ playbackState, playbackDevices, socket, sendPlayback
             <div className="playback-controls-buttons">
               <button 
                 className="control-button previous" 
-                onClick={() => handlePlaybackAction('previous')}
+                onClick={() => sendPlaybackCommand('previous')}
                 aria-label="Previous track"
               >
                 <SkipBack size={20} weight="fill" />
               </button>
               <button 
                 className="control-button play-pause" 
-                onClick={() => handlePlaybackAction(is_playing ? 'pause' : 'play')}
+                onClick={() => sendPlaybackCommand(is_playing ? 'pause' : 'play')}
                 aria-label={is_playing ? "Pause" : "Play"}
               >
                 {is_playing ? <Pause size={24} weight="fill" /> : <Play size={24} weight="fill" />}
               </button>
               <button 
                 className="control-button next" 
-                onClick={() => handlePlaybackAction('next')}
+                onClick={() => sendPlaybackCommand('next')}
                 aria-label="Next track"
               >
                 <SkipForward size={20} weight="fill" />
@@ -285,7 +223,7 @@ const PlaybackControls = ({ playbackState, playbackDevices, socket, sendPlayback
                       value={device?.volume_percent || 50}
                       onChange={(e) => {
                         const volumePercent = parseInt(e.target.value, 10);
-                        handlePlaybackAction('volume', { volumePercent });
+                        sendPlaybackCommand('volume', { volumePercent });
                       }}
                       className="volume-slider"
                     />
@@ -299,7 +237,7 @@ const PlaybackControls = ({ playbackState, playbackDevices, socket, sendPlayback
                 {playbackDevices && playbackDevices.length > 0 && (
                   <div className="device-selector">
                     <select 
-                      onChange={(e) => handlePlaybackAction('transfer', { deviceId: e.target.value })}
+                      onChange={(e) => sendPlaybackCommand('transfer', { deviceId: e.target.value })}
                       value={device?.id || ''}
                     >
                       <option value="" disabled>select device</option>

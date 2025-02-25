@@ -18,6 +18,8 @@ buttons should have rounded ends, short vertical height compared to width
 
 - we're using Phosphor Icons in the web client. before you do - design guidelines - inline icons should be sized to the text size. but larger areas of the UI can contain larger icons
 
+- use gpt-4o for all LLM calls
+
 
 
 am i going to have to restart the entire project. the point of this is to have a generic conversational agent that is presented with AIPI tool calls and is able to figure out how to serve the user's requests itself. read spotify-aipi-tools. you're too focused on music recommendation. this is an entire music interface for discovering, saving, and playing music - using Spotify and Last.fm. do you understand

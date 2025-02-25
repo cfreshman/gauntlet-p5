@@ -2,220 +2,131 @@
  * MCP Run All Script
  * 
  * This script runs all three MCP layers simultaneously on different ports.
- * It allows for testing the complete layered architecture in one command.
  */
 
-// load punycode hook to intercept all punycode imports
-require('../utils/punycode-hook');
+import '../utils/punycode-hook.js';
+import dotenv from 'dotenv';
+import logger from '../utils/logger.js';
+import { Layer1Server, Layer2Server, Layer3Server } from './index.js';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-require('dotenv').config({ path: __dirname + '/../.env' });
-const { spawn } = require('child_process');
-const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
-const logger = require('../utils/logger');
-const { Layer1Server, Layer2Server, Layer3Server } = require('./index');
-
-// Check if express and related dependencies are available
-let express, cors, SSEServerTransport;
-try {
-  express = require('express');
-  cors = require('cors');
-  const sseModule = require('@modelcontextprotocol/sdk/server/sse.js');
-  SSEServerTransport = sseModule.SSEServerTransport;
-  logger.info('Express, CORS, and SSEServerTransport loaded successfully');
-} catch (error) {
-  logger.info('Express, CORS, or SSEServerTransport not available:', error.message);
-  logger.info('Will only run stdio servers');
-}
-
-// Port configuration
-const ports = {
-  layer1: 3001,
-  layer2: 3002,
-  layer3: 3003
-};
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: __dirname + '/../.env' });
 
 /**
- * Create and start an Express server for a specific MCP layer
- * @param {string} layerName - The name of the layer (layer1, layer2, layer3)
- * @param {McpServer} mcpServer - The MCP server instance
- * @param {number} port - The port to run the server on
+ * Create and start an MCP server for a specific layer
  */
-function startExpressServer(layerName, mcpServer, port) {
-  if (!express || !cors || !SSEServerTransport) {
-    logger.info(`Cannot start ${layerName} Express server: required dependencies not available`);
-    return;
-  }
+async function startMcpServer(layerName, LayerServerClass, port, config = {}) {
+  // Create MCP server instance
+  const mcpServer = new LayerServerClass({
+    name: `aipi-${layerName}-server`,
+    version: '1.0.0',
+    port,
+    ...config
+  });
 
-  try {
-    const app = express();
-    
-    // Configure middleware
-    app.use(cors());
-    app.use(express.json());
-    
-    // Set up SSE endpoint
-    app.get('/mcp/events', async (req, res) => {
-      try {
-        logger.info(`${layerName}: New SSE connection established`);
-        const transport = new SSEServerTransport('/mcp/messages', res);
-        await mcpServer.connect(transport);
-      } catch (error) {
-        logger.error(`${layerName}: Error in SSE connection:`, error);
-        res.status(500).end();
-      }
-    });
-    
-    // Set up message endpoint
-    app.post('/mcp/messages', express.json(), async (req, res) => {
-      try {
-        // Note: In a production environment, you would need to route messages
-        // to the correct transport instance. This is a simplified implementation.
-        res.status(200).json({ status: 'ok' });
-      } catch (error) {
-        logger.error(`${layerName}: Error handling message:`, error);
-        res.status(500).json({ error: error.message });
-      }
-    });
-    
-    // Health check endpoint
-    app.get('/health', (req, res) => {
-      res.status(200).json({ 
-        status: 'ok', 
-        layer: layerName,
-        timestamp: new Date().toISOString() 
-      });
-    });
-    
-    // Start the server
-    app.listen(port, () => {
-      logger.info(`${layerName} MCP Server running on http://localhost:${port}`);
-      logger.info(`${layerName} MCP Events: http://localhost:${port}/mcp/events`);
-      logger.info(`${layerName} MCP Messages: http://localhost:${port}/mcp/messages`);
-    });
-  } catch (error) {
-    logger.error(`Error starting ${layerName} Express server:`, error);
-  }
+  // Start the server
+  await mcpServer.start();
+  logger.info(`${layerName} server started successfully`);
+
+  return mcpServer;
 }
 
 /**
- * Main function to run all MCP layers
+ * Main function to run MCP layers
  */
 async function main() {
   try {
+    // Check if a specific layer was requested
+    const requestedLayer = process.argv[2];
+    
+    if (requestedLayer) {
+      // Run only the requested layer
+      switch (requestedLayer) {
+        case 'layer1':
+          await startMcpServer('layer1', Layer1Server, 3001);
+          break;
+        case 'layer2':
+          await startMcpServer('layer2', Layer2Server, 3002);
+          break;
+        case 'layer3':
+          await startMcpServer('layer3', Layer3Server, 3003);
+          break;
+        default:
+          throw new Error(`Invalid layer: ${requestedLayer}`);
+      }
+      return;
+    }
+
+    // Otherwise run all layers
     logger.info('Starting all MCP layers');
-    
-    // Initialize Layer 1 server
-    logger.info('Initializing Layer 1 MCP Server');
-    const layer1Server = new Layer1Server({
-      name: 'aipi-layer1-server',
-      version: '1.0.0'
-    });
-    
-    // Define endpoints for each layer
-    const layer1Endpoint = `http://localhost:${ports.layer1}/mcp/events`;
-    const layer2Endpoint = `http://localhost:${ports.layer2}/mcp/events`;
-    const layer3Endpoint = `http://localhost:${ports.layer3}/mcp/events`;
-    
-    // Wait for Layer 1 to initialize
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Initialize Layer 2 server with Layer 1 endpoint
-    logger.info('Initializing Layer 2 MCP Server');
-    const layer2Server = new Layer2Server({
-      name: 'aipi-layer2-server',
-      version: '1.0.0',
-      layer1Endpoint
-    });
-    
-    // Wait for Layer 2 to initialize
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Initialize Layer 3 server with Layer 2 and Layer 1 endpoints
-    logger.info('Initializing Layer 3 MCP Server');
-    const layer3Server = new Layer3Server({
-      name: 'aipi-layer3-server',
-      version: '1.0.0',
-      layer2Endpoint,
-      layer1Endpoint
-    });
-    
-    // Start Express servers for each layer if dependencies are available
-    if (express && cors && SSEServerTransport) {
-      logger.info('Starting Express servers for MCP layers');
-      startExpressServer('Layer 1', layer1Server.getServer(), ports.layer1);
-      
-      // Wait for Layer 1 Express server to start
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      startExpressServer('Layer 2', layer2Server.getServer(), ports.layer2);
-      
-      // Wait for Layer 2 Express server to start
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      startExpressServer('Layer 3', layer3Server.getServer(), ports.layer3);
-    } else {
-      logger.info('Skipping Express servers due to missing dependencies');
-    }
-    
-    // Start stdio versions in separate processes
-    logger.info('Starting stdio versions of MCP servers');
-    
-    const processes = [];
-    
+
+    // Start Layer 1
     try {
-      const layer1Process = spawn('node', ['--no-deprecation', 'src/mcp/demo.js', '1'], {
-        stdio: 'inherit'
-      });
-      processes.push(layer1Process);
-      
-      // Wait for Layer 1 stdio server to start
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const layer2Process = spawn('node', ['--no-deprecation', 'src/mcp/demo.js', '2'], {
-        stdio: 'inherit'
-      });
-      processes.push(layer2Process);
-      
-      // Wait for Layer 2 stdio server to start
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const layer3Process = spawn('node', ['--no-deprecation', 'src/mcp/demo.js', '3'], {
-        stdio: 'inherit'
-      });
-      processes.push(layer3Process);
+      const layer1Server = await startMcpServer('layer1', Layer1Server, 3001);
+      await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (error) {
-      logger.error('Error starting stdio servers:', error);
+      logger.error('Failed to start Layer 1 server:', {
+        message: error.message || error.toString(),
+        stack: error.stack,
+        details: error
+      });
+      throw error;
     }
-    
+
+    // Start Layer 2
+    try {
+      const layer2Server = await startMcpServer('layer2', Layer2Server, 3002);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (error) {
+      logger.error('Failed to start Layer 2 server:', {
+        message: error.message || error.toString(),
+        stack: error.stack,
+        details: error
+      });
+      throw error;
+    }
+
+    // Start Layer 3
+    try {
+      const layer3Server = await startMcpServer('layer3', Layer3Server, 3003);
+    } catch (error) {
+      logger.error('Failed to start Layer 3 server:', {
+        message: error.message || error.toString(),
+        stack: error.stack,
+        details: error
+      });
+      throw error;
+    }
+
     // Handle process termination
     process.on('SIGINT', () => {
       logger.info('Terminating all MCP servers');
-      processes.forEach(proc => {
-        try {
-          if (proc && !proc.killed) {
-            proc.kill();
-          }
-        } catch (error) {
-          logger.error('Error killing process:', error);
-        }
-      });
       process.exit(0);
     });
-    
+
     logger.info('All MCP layers are running');
     logger.info('Press Ctrl+C to exit');
   } catch (error) {
-    logger.error('Error running MCP layers', { error: error.message, stack: error.stack });
+    logger.error('Error running MCP layers:', {
+      message: error.message || error.toString(),
+      stack: error.stack,
+      details: error
+    });
     process.exit(1);
   }
 }
 
-// Run the main function
-if (require.main === module) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch(error => {
-    logger.error('Unhandled error in main', { error: error.message, stack: error.stack });
+    logger.error('Unhandled error in main:', {
+      message: error.message || error.toString(),
+      stack: error.stack,
+      details: error
+    });
     process.exit(1);
   });
 }
 
-module.exports = { main }; 
+export { main }; 

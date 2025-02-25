@@ -5,20 +5,21 @@
  * the Model Context Protocol across the different layers of the (AI)PI system.
  */
 
-// load punycode hook to intercept all punycode imports
-require('../utils/punycode-hook');
+// Import punycode hook to intercept all punycode imports
+import '../utils/punycode-hook.js';
 
-// Re-export the SDK components we'll use
-const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
-const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
-const { z } = require('zod'); // Zod is used for schema validation in the MCP SDK
+// Import the SDK components we'll use
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod'; // Zod is used for schema validation in the MCP SDK
 
-// Export our layer-specific implementations
-const Layer1Server = require('./layer1Server');
-const Layer2Server = require('./layer2Server');
-const Layer3Server = require('./layer3Server');
+// Import our layer-specific implementations
+import { Layer1Server } from './layer1Server.js';
+import { Layer2Server } from './layer2Server.js';
+import { Layer3Server } from './layer3Server.js';
 
-module.exports = {
+// Export everything
+export {
   // SDK exports
   McpServer,
   StdioServerTransport,

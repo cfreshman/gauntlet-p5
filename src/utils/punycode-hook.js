@@ -1,29 +1,25 @@
 /**
- * punycode-hook.js
+ * Punycode Hook for ESM
  * 
- * this module uses node.js module hooks to intercept all punycode imports
- * and redirect them to our custom implementation.
- * 
- * to use this module, require it as early as possible in your application:
- * require('./src/utils/punycode-hook');
+ * This module provides a hook for punycode in ESM environments.
+ * It's needed because punycode is not a native ESM module.
  */
 
-const Module = require('module');
-const path = require('path');
+import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
-// store the original require function
-const originalRequire = Module.prototype.require;
+const require = createRequire(import.meta.url);
 
-// override the require function to intercept punycode imports
-Module.prototype.require = function(id) {
-  // if the module being required is punycode, redirect to our custom implementation
-  if (id === 'punycode') {
-    return originalRequire.call(this, path.resolve(__dirname, './punycode'));
+try {
+  // Try to load punycode-esm first
+  await import('punycode-esm');
+} catch (error) {
+  // Fallback to require if ESM version fails
+  try {
+    require('punycode');
+  } catch (error) {
+    console.warn('Warning: punycode not available');
   }
-  
-  // otherwise, use the original require function
-  return originalRequire.call(this, id);
-};
+}
 
-// log that the hook has been installed
-console.log('punycode hook installed - redirecting all punycode imports to custom implementation'); 
+export {}; 

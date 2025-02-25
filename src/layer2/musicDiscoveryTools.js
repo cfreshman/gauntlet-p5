@@ -4,9 +4,9 @@
  * This module provides intelligent music discovery tools that build on the Layer 1 Spotify API tools.
  */
 
-const logger = require('../utils/logger');
-const spotifyClient = require('../utils/spotifyClient');
-const { z } = require('zod');
+import logger from '../utils/logger.js';
+import spotifyClient from '../utils/spotifyClient.js';
+import { z } from 'zod';
 
 /**
  * Register music discovery tools with the server
@@ -321,6 +321,4 @@ function calculateAverageFeature(features, featureName) {
   };
 }
 
-module.exports = {
-  registerMusicDiscoveryTools
-}; 
+export { registerMusicDiscoveryTools }; 

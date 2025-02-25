@@ -4,13 +4,19 @@
  * Processes user messages and returns responses for the web client.
  */
 
-require('dotenv').config({ path: __dirname + '/../.env' });
-const logger = require('../utils/logger');
-const mcpClient = require('../utils/mcp-client');
-const toolFormatter = require('../utils/tool-formatter');
+import { config } from 'dotenv';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-// Chat history for context (stored per user in a real implementation)
-const chatHistory = [];
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: __dirname + '/../.env' });
+
+import logger from '../utils/logger.js';
+import mcpClient from '../utils/mcp-client.js';
+import toolFormatter from '../utils/tool-formatter.js';
+
+// Chat history stored per user
+const userChatHistories = new Map();
 
 // Debug information
 const debugInfo = {
@@ -22,13 +28,20 @@ const debugInfo = {
 /**
  * Process a user message and return a response
  * @param {string} userInput - The user's message
+ * @param {string} userId - The user's ID
  * @returns {Promise<string>} - The assistant's response
  */
-async function processUserMessage(userInput) {
+async function processUserMessage(userInput, userId) {
   console.log('=== Processing user message ===');
-  console.log(`Input: "${userInput}"`);
-  console.log(`Chat history length: ${chatHistory.length}`);
-  logger.info(`Processing user message: ${userInput}`);
+  console.log(`Input: "${userInput}" from user: ${userId}`);
+  
+  // Get or initialize chat history for this user
+  if (!userChatHistories.has(userId)) {
+    userChatHistories.set(userId, []);
+  }
+  const chatHistory = userChatHistories.get(userId);
+  console.log(`Chat history length for user ${userId}: ${chatHistory.length}`);
+  logger.info(`Processing user message: ${userInput} for user: ${userId}`);
   
   // Add user message to chat history
   chatHistory.push({
@@ -46,21 +59,14 @@ async function processUserMessage(userInput) {
     // Generate and store tool descriptions for debugging
     await generateToolDescriptions();
     
-    // Special case for testing Layer 1 and Layer 2 clients directly
-    if (userInput.toLowerCase().includes('test layer1') || userInput.toLowerCase().includes('test layer 1')) {
-      return await testLayer1Client();
-    }
-    
-    if (userInput.toLowerCase().includes('test layer2') || userInput.toLowerCase().includes('test layer 2')) {
-      return await testLayer2Client();
-    }
-    
     // Use the music-aipi-agent tool from Layer 3
     const toolName = 'music-aipi-agent';
     const toolArgs = { 
       query: userInput,
       // Pass the chat history to the agent
-      conversationHistory: JSON.stringify(chatHistory)
+      conversationHistory: JSON.stringify(chatHistory),
+      // Format response for web client
+      responseFormat: 'concise'
     };
     
     // Store the tool call for debugging
@@ -72,6 +78,11 @@ async function processUserMessage(userInput) {
       // Call the music-aipi-agent tool
       const toolResult = await mcpClient.callTool(toolName, toolArgs);
       debugInfo.lastToolResult = toolResult;
+      
+      // Check if service is not ready
+      if (toolResult.unready) {
+        return toolResult.content[0].text;
+      }
       
       // Extract the response from the tool result
       let response = extractResponseFromToolResult(toolResult);
@@ -85,45 +96,46 @@ async function processUserMessage(userInput) {
         content: response
       });
       
+      // Trim chat history if it gets too long (keep last 50 messages)
+      if (chatHistory.length > 50) {
+        chatHistory.splice(0, chatHistory.length - 50);
+      }
+      
       console.log('=== Message processing complete ===');
       return response;
     } catch (error) {
-      console.error(`Error calling tool ${toolName}:`, error);
-      
-      // If tool call fails, use a fallback response
-      const fallbackResponse = "i'm sorry, i couldn't process your request. could you try asking in a different way?";
-      
-      // Log the error for debugging
       logger.error(`Tool call error for ${toolName}:`, { 
         error: error.message, 
         args: toolArgs,
-        userInput
+        userInput,
+        userId
       });
       
-      // Add fallback response to chat history
+      // Add error response to chat history
+      const errorMessage = `i'm sorry, i encountered an error while processing your request. could you try rephrasing or asking something else?`;
+      
       chatHistory.push({
         role: 'assistant',
-        content: fallbackResponse
+        content: errorMessage
       });
       
-      console.log('=== Message processing failed ===');
-      return fallbackResponse;
+      return errorMessage;
     }
   } catch (error) {
-    console.error('Error in processUserMessage:', error);
-    
-    // Handle errors gracefully
-    const errorResponse = `i'm sorry, i encountered an error while processing your request: ${error.message}. could you try rephrasing or asking something else?`;
-    logger.error(`Error processing message: ${error.message}`);
-    
-    // Add assistant response to chat history
-    chatHistory.push({
-      role: 'assistant',
-      content: errorResponse
+    logger.error('Error in message processing:', { 
+      error: error.message,
+      userInput,
+      userId
     });
     
-    console.log('=== Message processing failed ===');
-    return errorResponse;
+    const errorMessage = `i'm sorry, something went wrong. please try again in a moment.`;
+    
+    chatHistory.push({
+      role: 'assistant',
+      content: errorMessage
+    });
+    
+    return errorMessage;
   }
 }
 
@@ -133,26 +145,46 @@ async function processUserMessage(userInput) {
  * @returns {string} - A user-friendly response
  */
 function extractResponseFromToolResult(toolResult) {
-  console.log('Extracting response from tool result:', toolResult);
+  console.log('Raw tool result:', JSON.stringify(toolResult, null, 2));
   
-  // Default response if extraction fails
-  let response = "i found some information for you, but i'm having trouble formatting it. could you try asking in a different way?";
-  
-  // Extract the content from the tool result
-  if (toolResult && toolResult.content && Array.isArray(toolResult.content)) {
-    // Process each content item
-    toolResult.content.forEach(item => {
-      if (item.type === 'text') {
-        // Use the text content as the response
-        response = item.text;
-      }
-    });
-  } else if (typeof toolResult === 'string') {
-    // If the tool result is a string, use it directly
-    response = toolResult;
+  // If the result is a string, return it directly
+  if (typeof toolResult === 'string') {
+    return toolResult;
   }
   
-  return response;
+  // If the result has a content array
+  if (toolResult && toolResult.content && Array.isArray(toolResult.content)) {
+    // Join all text content
+    const textContent = toolResult.content
+      .map(item => {
+        if (typeof item === 'string') return item;
+        if (item.type === 'text') return item.text;
+        if (item.text) return item.text;
+        return '';
+      })
+      .filter(text => text)
+      .join('\n');
+      
+    if (textContent) return textContent;
+  }
+  
+  // If the result has a direct content property
+  if (toolResult && toolResult.content) {
+    if (typeof toolResult.content === 'string') {
+      return toolResult.content;
+    }
+    if (typeof toolResult.content === 'object' && toolResult.content.text) {
+      return toolResult.content.text;
+    }
+  }
+  
+  // If we have a text property directly
+  if (toolResult && toolResult.text) {
+    return toolResult.text;
+  }
+  
+  console.log('Could not extract response from tool result');
+  return "i'm having trouble understanding that. could you try asking in a different way?";
 }
 
 /**
@@ -333,7 +365,7 @@ When using tools, follow these rules:
   }
 }
 
-module.exports = {
+export {
   processUserMessage,
   getDebugInfo,
   generateSystemPrompt

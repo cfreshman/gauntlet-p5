@@ -5,11 +5,11 @@
  * by dynamically discovering and using available tools.
  */
 
-const logger = require('../utils/logger');
-const { OpenAI } = require('openai');
-const { z } = require('zod');
-const mcpClient = require('../utils/mcp-client');
-const toolFormatter = require('../utils/tool-formatter');
+import logger from '../utils/logger.js';
+import { OpenAI } from 'openai';
+import { z } from 'zod';
+import mcpClient from '../utils/mcp-client.js';
+import toolFormatter from '../utils/tool-formatter.js';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -25,7 +25,7 @@ const openai = new OpenAI({
 function registerMusicAipiAgent(server, layer1Client, layer2Client) {
   logger.info('Registering Generic AIPI Agent (Layer 3)...');
 
-  // Debug the client status
+  // Debug the initial client status
   logger.info('Initial Layer 1 client status:', { 
     available: !!layer1Client,
     connected: layer1Client ? 'Yes (checking tools)' : 'No'
@@ -36,18 +36,7 @@ function registerMusicAipiAgent(server, layer1Client, layer2Client) {
     connected: layer2Client ? 'Yes (checking tools)' : 'No'
   });
 
-  // Check if the server has a tools property and if process-query is already registered
-  try {
-    // Try to unregister the existing process-query tool if it exists
-    if (server._tools && server._tools['process-query']) {
-      logger.info('Unregistering existing process-query tool');
-      delete server._tools['process-query'];
-    }
-  } catch (error) {
-    logger.warn('Could not unregister existing process-query tool:', error.message);
-  }
-
-  // Register our generic agent tool
+  // Register the agent immediately
   server.tool(
     'music-aipi-agent',
     'Process a natural language query and generate a response using available tools',
@@ -58,40 +47,40 @@ function registerMusicAipiAgent(server, layer1Client, layer2Client) {
       conversationHistory: z.string().optional().describe('JSON string of conversation history from the front end')
     },
     async ({ query, context = '', responseFormat = 'detailed', conversationHistory = '' }) => {
+      // Check if MCP client is fully connected
+      if (!mcpClient.isFullyConnected()) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "service is starting up, please try again in a moment..."
+            }
+          ],
+          isError: true,
+          unready: true
+        };
+      }
+
       try {
         logger.debug('Processing user query', { queryLength: query.length, responseFormat });
-        
-        // Initialize MCP client if not already initialized
-        if (!mcpClient.initialized) {
-          logger.info('Initializing MCP client from generic agent...');
-          await mcpClient.initialize();
-        }
         
         // Parse conversation history if provided
         let parsedHistory = [];
         if (conversationHistory) {
           try {
             parsedHistory = JSON.parse(conversationHistory);
-            logger.info('Using conversation history from front end', { historyLength: parsedHistory.length });
           } catch (error) {
             logger.warn('Failed to parse conversation history', { error: error.message });
           }
         }
         
-        // Log the client status
-        logger.info('Using MCP client for generic agent:', {
-          layer1ClientAvailable: mcpClient.connected.layer1,
-          layer2ClientAvailable: mcpClient.connected.layer2,
-          layer3ClientAvailable: mcpClient.connected.layer3
-        });
-        
-        // Handle the query using the generic approach
+        // Handle the query using available tools
         return await handleQuery({ 
           query, 
           context, 
           responseFormat, 
           chatHistory: parsedHistory, 
-          mcpClient 
+          mcpClient
         });
       } catch (error) {
         logger.error('Error processing query', { error: error.message });
@@ -99,7 +88,7 @@ function registerMusicAipiAgent(server, layer1Client, layer2Client) {
           content: [
             {
               type: "text",
-              text: `i'm sorry, i encountered an error while processing your request: ${error.message}. could you try rephrasing or asking something else?`
+              text: `i'm sorry, i encountered an error while processing your request. could you try rephrasing or asking something else?`
             }
           ],
           isError: true
@@ -138,7 +127,7 @@ async function handleQuery(params) {
     
     if (!toolName) {
       // If no tool was selected, handle as a general query
-      return await handleGeneralQuery(query, context, responseFormat, chatHistory);
+      return await handleGeneralQuery(query, context, responseFormat, chatHistory, mcpClient);
     }
     
     // Log the selected tool
@@ -160,7 +149,7 @@ async function handleQuery(params) {
         content: [
           {
             type: "text",
-            text: `I couldn't find the tool "${toolName}" to process your request. Please try again with a different query.`
+            text: `i couldn't find the right tool to handle your request. could you try asking in a different way?`
           }
         ],
         isError: true
@@ -188,40 +177,60 @@ async function handleQuery(params) {
       responseFormat
     });
     
-    // Add processed result to call tree
-    clientState.callTree.steps.push({
-      type: 'processed_result',
-      result: processedResult,
-      timestamp: new Date().toISOString()
-    });
+    // Format response for web client
+    let response;
+    if (Array.isArray(processedResult.content)) {
+      response = processedResult.content;
+    } else if (typeof processedResult.content === 'string') {
+      response = [{
+        type: "text",
+        text: processedResult.content
+      }];
+    } else {
+      response = [{
+        type: "text",
+        text: "i'm sorry, i received an invalid response format. please try again."
+      }];
+    }
     
-    // Store the call tree in a global variable for debugging
+    // Add any additional context from tool result
+    if (toolResult.context) {
+      response.push({
+        type: "context",
+        data: toolResult.context
+      });
+    }
+    
+    // Add any Spotify playback controls if relevant
+    if (toolResult.playback) {
+      response.push({
+        type: "playback",
+        data: toolResult.playback
+      });
+    }
+    
+    // Store the call tree for debugging
     global.lastCallTree = clientState.callTree;
     
-    // Return the processed result with the call tree for debugging
     return {
-      ...processedResult,
-      debug: {
-        callTree: clientState.callTree
-      }
+      content: response,
+      isError: false
     };
-    
   } catch (error) {
-    logger.error(`Error handling query: ${error.message}`);
+    logger.error('Error in handleQuery:', { 
+      error: error.message,
+      query,
+      context
+    });
+    
     return {
       content: [
         {
           type: "text",
-          text: `I encountered an error while processing your request: ${error.message}. Please try again or ask a different question.`
+          text: `i'm sorry, something went wrong while handling your request. please try again in a moment.`
         }
       ],
-      isError: true,
-      debug: {
-        callTree: global.lastCallTree || {
-          error: error.message,
-          stack: error.stack
-        }
-      }
+      isError: true
     };
   }
 }
@@ -235,12 +244,15 @@ async function handleQuery(params) {
 async function selectTool(query, mcpClient) {
   try {
     // Fetch available tools from all layers
-    const allTools = await mcpClient.getAllTools();
-    const layer1Tools = allTools.filter(tool => tool.layer === 1);
-    const layer2Tools = allTools.filter(tool => tool.layer === 2);
+    const allTools = mcpClient.getAllTools();
+    
+    // Count tools by layer for debugging
+    const layer1ToolCount = allTools.layer1 ? allTools.layer1.length : 0;
+    const layer2ToolCount = allTools.layer2 ? allTools.layer2.length : 0;
+    const layer3ToolCount = allTools.layer3 ? allTools.layer3.length : 0;
     
     // Log tool counts for debugging
-    logger.debug(`Available tools - Layer 1: ${layer1Tools.length}, Layer 2: ${layer2Tools.length}, Layer 3: ${allTools.length - layer1Tools.length - layer2Tools.length}`);
+    logger.debug(`Available tools - Layer 1: ${layer1ToolCount}, Layer 2: ${layer2ToolCount}, Layer 3: ${layer3ToolCount}`);
     
     // Format tools for LLM
     const toolsFormatted = await mcpClient.formatAllToolsForLLM();
@@ -439,10 +451,35 @@ ${content}`
  * @param {string} context - Additional context
  * @param {string} responseFormat - Format of the response
  * @param {array} conversationHistory - The conversation history from the front end
+ * @param {object} mcpClient - The MCP client
  * @returns {Promise<object>} - The response
  */
-async function handleGeneralQuery(query, context, responseFormat, conversationHistory = []) {
+async function handleGeneralQuery(query, context, responseFormat, chatHistory, mcpClient) {
   try {
+    logger.info(`Handling general query: "${query}"`);
+    
+    // Convert chat history to the format expected by OpenAI
+    const messages = chatHistory.map(msg => {
+      return {
+        role: msg.role,
+        content: msg.content
+      };
+    });
+    
+    // Get available tools
+    const allTools = mcpClient.getAllTools();
+    
+    // Count tools by layer for debugging
+    const layer1ToolCount = allTools.layer1 ? allTools.layer1.length : 0;
+    const layer2ToolCount = allTools.layer2 ? allTools.layer2.length : 0;
+    const layer3ToolCount = allTools.layer3 ? allTools.layer3.length : 0;
+    
+    // Log tool counts for debugging
+    logger.debug(`Available tools - Layer 1: ${layer1ToolCount}, Layer 2: ${layer2ToolCount}, Layer 3: ${layer3ToolCount}`);
+    
+    // Format tools for LLM
+    const toolsFormatted = await mcpClient.formatAllToolsForLLM();
+    
     // Construct system prompt based on response format
     let systemPrompt;
     switch (responseFormat) {
@@ -466,12 +503,12 @@ async function handleGeneralQuery(query, context, responseFormat, conversationHi
     systemPrompt += " Your responses should be in lowercase to match the aesthetic of the system.";
     
     // Start with the system message
-    let messages = [{ role: "system", content: systemPrompt }];
+    messages.unshift({ role: "system", content: systemPrompt });
     
     // Add conversation history as actual messages
-    if (conversationHistory && conversationHistory.length > 0) {
+    if (chatHistory && chatHistory.length > 0) {
       // Add each message from the history to the messages array
-      conversationHistory.forEach(msg => {
+      chatHistory.forEach(msg => {
         messages.push({
           role: msg.role,
           content: msg.content
@@ -479,7 +516,7 @@ async function handleGeneralQuery(query, context, responseFormat, conversationHi
       });
       
       logger.info('Added conversation history to messages in handleGeneralQuery', { 
-        historyLength: conversationHistory.length 
+        historyLength: chatHistory.length 
       });
     }
     
@@ -521,6 +558,4 @@ async function handleGeneralQuery(query, context, responseFormat, conversationHi
   }
 }
 
-module.exports = {
-  registerMusicAipiAgent
-}; 
+export { registerMusicAipiAgent }; 

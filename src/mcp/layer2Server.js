@@ -4,42 +4,26 @@
  * This file implements the agentic MCP server for Layer 2,
  * which combines traditional code execution with LLM integration.
  */
-const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
-const { z } = require('zod');
-const OpenAI = require('openai');
-const logger = require('../utils/logger');
-const { MCPBoundaryError } = require('../utils/errors');
-const { registerMusicAnalysisTools } = require('../layer2/musicAnalysisTools');
-const { registerPlaylistGenerationTools } = require('../layer2/playlistGenerationTools');
-const { registerMusicDiscoveryTools } = require('../layer2/musicDiscoveryTools');
-const { registerLastfmDiscoveryTools } = require('../layer2/lastfmDiscoveryTools');
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import express from 'express';
+import cors from 'cors';
+import { z } from 'zod';
+import OpenAI from 'openai';
+import logger from '../utils/logger.js';
+import { MCPBoundaryError } from '../utils/errors.js';
+import { registerMusicAnalysisTools } from '../layer2/musicAnalysisTools.js';
+import { registerPlaylistGenerationTools } from '../layer2/playlistGenerationTools.js';
+import { registerMusicDiscoveryTools } from '../layer2/musicDiscoveryTools.js';
+import { registerLastfmDiscoveryTools } from '../layer2/lastfmDiscoveryTools.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 // Initialize OpenAI API client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-
-// Try to load SSE client transport
-let SSEClientTransport;
-try {
-  const sseModule = require('@modelcontextprotocol/sdk/client/sse.js');
-  SSEClientTransport = sseModule.SSEClientTransport;
-  logger.debug('SSEClientTransport loaded successfully for Layer2Server');
-} catch (error) {
-  // Only log as debug since this is expected in some environments
-  logger.debug('SSEClientTransport not available for Layer2Server:', error.message);
-}
-
-// Try to load StdioClientTransport as fallback
-let StdioClientTransport;
-try {
-  const stdioModule = require('@modelcontextprotocol/sdk/client/stdio.js');
-  StdioClientTransport = stdioModule.StdioClientTransport;
-  logger.debug('StdioClientTransport loaded successfully for Layer2Server');
-} catch (error) {
-  // Only log as debug since this is expected in some environments
-  logger.debug('StdioClientTransport not available for Layer2Server:', error.message);
-}
 
 /**
  * Layer 2 MCP Server
@@ -57,6 +41,13 @@ class Layer2Server {
       version: options.version || '1.0.0'
     });
     
+    // Create express app
+    this.app = express();
+    this.app.use(cors());
+    
+    // Track current transport
+    this.transport = null;
+    
     // Initialize Layer 1 client if endpoint is provided
     if (options.layer1Endpoint) {
       this.layer1Endpoint = options.layer1Endpoint;
@@ -68,17 +59,19 @@ class Layer2Server {
     
     this.layer1Client = null;
     
-    this.registerDefaultTools();
-    this.registerDefaultResources();
-    this.registerDefaultPrompts();
-    
-    // Register Layer 2 tools
+    // Register tools
     registerMusicAnalysisTools(this.server);
     registerPlaylistGenerationTools(this.server);
     registerMusicDiscoveryTools(this.server);
     registerLastfmDiscoveryTools(this.server);
+    this.registerDefaultTools();
+    this.registerDefaultResources();
+    this.registerDefaultPrompts();
     
-    logger.info(`Layer 2 MCP Server initialized`);
+    // Set up endpoints
+    this.setupEndpoints();
+    
+    logger.info('Layer 2 MCP Server initialized');
   }
   
   /**
@@ -87,8 +80,6 @@ class Layer2Server {
    */
   async initializeLayer1Client() {
     try {
-      const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
-      
       // Create Layer 1 client
       this.layer1Client = new Client(
         {
@@ -104,20 +95,12 @@ class Layer2Server {
         }
       );
       
-      // Connect to Layer 1 server
-      let transport;
-      if (SSEClientTransport) {
-        transport = new SSEClientTransport({ endpoint: this.layer1Endpoint });
-      } else if (StdioClientTransport) {
-        transport = new StdioClientTransport({
-          command: 'node',
-          args: ['--no-deprecation', 'src/mcp/demo.js', '1'],
-          cwd: process.cwd()
-        });
-      } else {
-        throw new Error('No transport available for Layer 1 client');
-      }
+      // Create SSE transport to Layer 1
+      const transport = new SSEClientTransport(
+        new URL('http://localhost:3001/mcp/events')
+      );
       
+      // Connect to Layer 1 server
       await this.layer1Client.connect(transport);
       logger.info('Layer 2 server connected to Layer 1 server');
       
@@ -577,27 +560,43 @@ class Layer2Server {
   }
   
   /**
-   * Connect the server to a transport
-   * @param {Object} transport - The transport to connect to
-   * @returns {Promise<void>}
-   */
-  async connect(transport) {
-    try {
-      await this.server.connect(transport);
-      logger.info('Layer 2 MCP Server connected to transport');
-    } catch (error) {
-      logger.error('Error connecting Layer 2 MCP Server', { error: error.message });
-      throw error;
-    }
-  }
-  
-  /**
    * Get the underlying MCP server instance
    * @returns {McpServer} - The MCP server instance
    */
   getServer() {
     return this.server;
   }
+
+  setupEndpoints() {
+    // Add SSE endpoint
+    this.app.get('/sse', (req, res) => {
+      this.transport = new SSEServerTransport('/messages', res);
+      this.server.connect(this.transport);
+    });
+
+    // Add POST endpoint for client-to-server messages
+    this.app.post('/messages', express.json(), (req, res) => {
+      if (this.transport) {
+        this.transport.handlePostMessage(req, res);
+      } else {
+        res.status(400).json({ error: 'No active SSE connection' });
+      }
+    });
+
+    // Add health check endpoint
+    this.app.get('/health', (req, res) => {
+      res.json({ status: 'ok' });
+    });
+  }
+
+  async start(port = 3002) {
+    return new Promise((resolve) => {
+      this.app.listen(port, () => {
+        logger.info(`Layer 2 server listening on port ${port}`);
+        resolve();
+      });
+    });
+  }
 }
 
-module.exports = Layer2Server; 
+export { Layer2Server }; 

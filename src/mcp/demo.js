@@ -4,23 +4,17 @@
  * This script demonstrates how to use the MCP servers
  * across the different layers of the (AI)PI system.
  */
-// load punycode hook to intercept all punycode imports
-require('../utils/punycode-hook');
 
-require('dotenv').config({ path: __dirname + '/../.env' });
-const { Layer1Server, Layer2Server, Layer3Server } = require('./index');
-const logger = require('../utils/logger');
+import '../utils/punycode-hook.js';
+import { config } from 'dotenv';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { Layer1Server, Layer2Server, Layer3Server } from './index.js';
+import logger from '../utils/logger.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-// Check if StdioServerTransport is available
-let StdioServerTransport;
-try {
-  const stdioModule = require('@modelcontextprotocol/sdk/server/stdio.js');
-  StdioServerTransport = stdioModule.StdioServerTransport;
-  logger.info('StdioServerTransport loaded successfully');
-} catch (error) {
-  logger.error('StdioServerTransport not available:', error.message);
-  process.exit(1);
-}
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: __dirname + '/../.env' });
 
 /**
  * Main function to run the demo
@@ -121,12 +115,12 @@ async function runLayer3Demo() {
   logger.info('Layer 3 MCP Server is running. Press Ctrl+C to exit.');
 }
 
-// Run the main function
-if (require.main === module) {
+// Run the main function if this is the main module
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch(error => {
     logger.error('Unhandled error in main', { error: error.message });
     process.exit(1);
   });
 }
 
-module.exports = { main }; 
+export { main }; 

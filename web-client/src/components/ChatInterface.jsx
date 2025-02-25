@@ -1,52 +1,65 @@
 import React, { useState, useRef, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { PaperPlaneTilt } from 'phosphor-react';
+import { useApp } from '../contexts/AppContext';
+import { usePlayback } from '../contexts/PlaybackContext';
 import '../styles/chat-interface.css';
 
-const ChatInterface = ({ messages, sendMessage, isLoading, hideInput = false }) => {
-  const [input, setInput] = useState('');
+const ChatInterface = () => {
+  const { messages, sendMessage, isLoading } = useApp();
+  const { playerExpanded } = usePlayback();
+  const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef(null);
-  
-  // Log when component mounts
+  const textareaRef = useRef(null);
+
+  // Scroll to bottom when messages change
   useEffect(() => {
-    console.log('ChatInterface mounted');
-    return () => {
-      console.log('ChatInterface unmounted');
-    };
-  }, []);
-  
-  // Log when messages or loading state changes
-  useEffect(() => {
-    console.log('Messages updated:', messages);
-    console.log('Loading state:', isLoading);
-  }, [messages, isLoading]);
-  
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (input.trim() && !isLoading) {
-      console.log('Form submitted with input:', input);
-      sendMessage(input);
-      setInput('');
-    } else {
-      console.log('Form submission prevented - empty input or loading:', { 
-        inputEmpty: !input.trim(), 
-        isLoading 
-      });
-    }
-  };
-  
-  const handleInputChange = (e) => {
-    setInput(e.target.value);
-    console.log('Input changed:', e.target.value);
-  };
-  
-  // auto-scroll to bottom when messages change
-  useEffect(() => {
-    console.log('Scrolling to bottom of messages');
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-  
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+    }
+  }, [inputValue]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (inputValue.trim()) {
+      sendMessage(inputValue.trim());
+      setInputValue('');
+      // Reset height
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
+
+  // Helper function to get message content
+  const getMessageContent = (msg) => {
+    if (typeof msg.content === 'string') {
+      return msg.content;
+    }
+    if (typeof msg.content === 'object') {
+      if (Array.isArray(msg.content)) {
+        return msg.content.map(item => item.text || '').join('\n');
+      }
+      return msg.content.text || '';
+    }
+    return '';
+  };
+
   return (
-    <div className={`chat-interface ${hideInput ? 'input-hidden' : ''}`}>
+    <div className={`chat-interface ${playerExpanded ? 'input-hidden' : ''}`}>
       <div className="messages-container">
         {messages.length === 0 ? (
           <div className="empty-state">
@@ -55,13 +68,7 @@ const ChatInterface = ({ messages, sendMessage, isLoading, hideInput = false }) 
         ) : (
           messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
-              <div className="message-content">
-                {msg.role === 'assistant' ? (
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                ) : (
-                  <p>{msg.content}</p>
-                )}
-              </div>
+              <p>{getMessageContent(msg)}</p>
             </div>
           ))
         )}
@@ -75,23 +82,19 @@ const ChatInterface = ({ messages, sendMessage, isLoading, hideInput = false }) 
         <div ref={messagesEndRef} />
       </div>
       
-      {!hideInput && (
-        <form className="input-form" onSubmit={handleSubmit}>
-          <input
-            type="text"
-            value={input}
-            onChange={handleInputChange}
-            placeholder="type your message..."
-            disabled={isLoading}
+      {!playerExpanded && (
+        <form className="input-container" onSubmit={handleSubmit}>
+          <textarea
+            ref={textareaRef}
             className="message-input"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="type a message..."
+            rows={1}
           />
-          <button 
-            type="submit" 
-            disabled={isLoading || !input.trim()} 
-            className="send-button"
-            onClick={() => console.log('Send button clicked')}
-          >
-            send
+          <button type="submit" className="send-button" disabled={!inputValue.trim()}>
+            <PaperPlaneTilt weight="bold" size={20} />
           </button>
         </form>
       )}

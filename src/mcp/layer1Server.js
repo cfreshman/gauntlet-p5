@@ -4,12 +4,16 @@
  * This file implements the deterministic MCP server for Layer 1,
  * which provides access to primitive operations with guaranteed deterministic behavior.
  */
-const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
-const { z } = require('zod');
-const logger = require('../utils/logger');
-const { MCPBoundaryError } = require('../utils/errors');
-const { registerSpotifyTools } = require('../layer1/spotifyTools');
-const { registerLastFmTools } = require('../layer1/lastFmTools');
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import express from 'express';
+import cors from 'cors';
+import { z } from 'zod';
+import logger from '../utils/logger.js';
+import { MCPBoundaryError } from '../utils/errors.js';
+import { registerSpotifyTools } from '../layer1/spotifyTools.js';
+import { registerLastFmTools } from '../layer1/lastFmTools.js';
 
 /**
  * Layer 1 MCP Server
@@ -26,16 +30,23 @@ class Layer1Server {
       version: options.version || '1.0.0'
     });
     
-    // Register Spotify tools
+    // Create express app
+    this.app = express();
+    this.app.use(cors());
+    
+    // Track current transport
+    this.transport = null;
+    
+    // Register tools
     registerSpotifyTools(this.server);
-    
-    // Register Last.fm tools
     registerLastFmTools(this.server);
-    
     this.registerDefaultTools();
     this.registerDefaultResources();
     
-    logger.info(`Layer 1 MCP Server initialized`);
+    // Set up endpoints
+    this.setupEndpoints();
+    
+    logger.info('Layer 1 MCP Server initialized');
   }
   
   /**
@@ -249,27 +260,51 @@ class Layer1Server {
   }
   
   /**
-   * Connect the server to a transport
-   * @param {Object} transport - The transport to connect to
-   * @returns {Promise<void>}
+   * Set up endpoints for the server
    */
-  async connect(transport) {
-    try {
-      await this.server.connect(transport);
-      logger.info('Layer 1 MCP Server connected to transport');
-    } catch (error) {
-      logger.error('Error connecting Layer 1 MCP Server', { error: error.message });
-      throw error;
-    }
+  setupEndpoints() {
+    // Add SSE endpoint
+    this.app.get('/sse', (req, res) => {
+      this.transport = new SSEServerTransport('/messages', res);
+      this.server.connect(this.transport);
+    });
+
+    // Add POST endpoint for client-to-server messages
+    this.app.post('/messages', express.json(), (req, res) => {
+      if (this.transport) {
+        this.transport.handlePostMessage(req, res);
+      } else {
+        res.status(400).json({ error: 'No active SSE connection' });
+      }
+    });
+
+    // Add health check endpoint
+    this.app.get('/health', (req, res) => {
+      res.json({ status: 'ok' });
+    });
+  }
+  
+  /**
+   * Start the server
+   * @param {number} port - The port to listen on
+   * @returns {Promise<void>} A promise that resolves when the server is started
+   */
+  async start(port = 3001) {
+    return new Promise((resolve) => {
+      this.app.listen(port, () => {
+        logger.info(`Layer 1 server listening on port ${port}`);
+        resolve();
+      });
+    });
   }
   
   /**
    * Get the underlying MCP server instance
-   * @returns {McpServer} - The MCP server instance
+   * @returns {McpServer} The MCP server instance
    */
   getServer() {
     return this.server;
   }
 }
 
-module.exports = Layer1Server; 
+export { Layer1Server }; 

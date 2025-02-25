@@ -4,10 +4,10 @@
  * This module provides intelligent music discovery tools using the Last.fm API.
  */
 
-const logger = require('../utils/logger');
-const lastfmClient = require('../utils/lastfmClient');
-const spotifyClient = require('../utils/spotifyClient');
-const { z } = require('zod');
+import logger from '../utils/logger.js';
+import lastfmClient from '../utils/lastfmClient.js';
+import spotifyClient from '../utils/spotifyClient.js';
+import { z } from 'zod';
 
 /**
  * Register Last.fm music discovery tools with the server
@@ -429,6 +429,4 @@ function findTopArtists(tracks) {
     .slice(0, 5);
 }
 
-module.exports = {
-  registerLastfmDiscoveryTools
-}; 
+export { registerLastfmDiscoveryTools }; 

@@ -5,9 +5,9 @@
  * These tools provide direct access to Spotify API endpoints with guaranteed deterministic behavior.
  */
 
-const spotifyClient = require('../utils/spotifyClient');
-const logger = require('../utils/logger');
-const { z } = require('zod');
+import spotifyClient from '../utils/spotifyClient.js';
+import logger from '../utils/logger.js';
+import { z } from 'zod';
 
 /**
  * Register Spotify tools with an MCP server
@@ -923,9 +923,7 @@ function registerSpotifyTools(server) {
     }
   );
   
-  logger.info('Spotify tools registered for Layer 1');
+  logger.info('Spotify tools registered successfully');
 }
 
-module.exports = {
-  registerSpotifyTools
-}; 
+export { registerSpotifyTools }; 

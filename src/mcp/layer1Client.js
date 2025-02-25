@@ -3,7 +3,7 @@
  * Handles data validation and transformation operations
  */
 
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 class Layer1Client extends Client {
   /**
@@ -31,4 +31,4 @@ class Layer1Client extends Client {
   }
 }
 
-module.exports = { Layer1Client }; 
+export { Layer1Client }; 
