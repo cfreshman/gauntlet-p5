@@ -173,11 +173,21 @@ class AipiLayerServer {
       await this.connectToLayer(layerName, config);
     }
 
-    // Register tools
+    // Register tools after clients are connected
     for (const [name, register] of Object.entries(this.tools)) {
       logger.info(`${this.name}: Registering ${name} tools...`);
       register(this.server, this.clients);
       logger.info(`${this.name}: ${name} tools registered successfully`);
+    }
+
+    // Verify tools are available from each client
+    for (const [layerName, client] of Object.entries(this.clients)) {
+      try {
+        const tools = await client.listTools();
+        logger.info(`${this.name}: ${layerName} has ${tools.tools?.length || 0} tools available`);
+      } catch (error) {
+        logger.error(`${this.name}: Failed to list tools from ${layerName}:`, error);
+      }
     }
 
     // Start HTTP server

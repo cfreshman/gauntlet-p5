@@ -40,9 +40,9 @@ app.use(session({
 const client = new AipiLayerClient({
   name: 'web-client',
   layerServers: {
-    demo: {
-      port: 3005,
-      wsPort: 3015
+    layer3: {
+      port: 3003,
+      wsPort: 3013
     }
   }
 });
@@ -302,36 +302,30 @@ app.post('/api/playback/previous', async (req, res) => {
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
-    const auth = req.headers.authorization;
-    if (!auth) {
-      return res.status(401).json({
+    // Verify client is connected
+    if (!client.isFullyConnected()) {
+      return res.status(503).json({
         content: [
           {
             type: "text",
-            text: "please log in with spotify first"
+            text: "service is starting up, please try again in a moment..."
           }
         ],
-        isError: true
+        isError: true,
+        unready: true
       });
     }
-
-    // Extract tokens from auth header
-    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
-    
-    // Store tokens in Spotify client
-    spotifyClient.storeUserTokens(userId, {
-      accessToken,
-      refreshToken,
-      expirationTime: parseInt(expirationTime)
-    });
     
     const { query, context, responseFormat, conversationHistory } = req.body;
 
-    // Call the echo tool for testing
+    // Call the music-aipi-agent tool
     const result = await client.callTool({
-      name: 'echo',
+      name: 'music-aipi-agent',
       arguments: {
-        message: query || ''
+        query,
+        context: context || '',
+        responseFormat: responseFormat || 'detailed',
+        conversationHistory: conversationHistory || ''
       }
     });
     res.json(result);

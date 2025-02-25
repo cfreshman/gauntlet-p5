@@ -59,19 +59,22 @@ async function processUserMessage(userInput, userId) {
     // Generate and store tool descriptions for debugging
     await generateToolDescriptions();
     
-    // Use echo from Demo Layer for testing
-    const toolName = 'echo';
+    // Call the music-aipi-agent tool
+    const toolName = 'music-aipi-agent';
     const toolArgs = { 
-      message: userInput
+      query: userInput,
+      context: '',
+      responseFormat: 'concise',
+      conversationHistory: JSON.stringify(chatHistory)
     };
     
     // Store the tool call for debugging
-    debugInfo.lastToolCall = `${toolName} from demo layer with args: ${JSON.stringify(toolArgs)}`;
+    debugInfo.lastToolCall = `${toolName} with args: ${JSON.stringify(toolArgs)}`;
     
     console.log(`Calling tool: ${toolName} with args:`, toolArgs);
     
     try {
-      // Call the echo tool
+      // Call the music-aipi-agent tool
       const toolResult = await mcpClient.callTool({
         name: toolName,
         arguments: toolArgs

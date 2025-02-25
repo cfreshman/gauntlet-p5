@@ -9,7 +9,7 @@ const layer3 = new AipiLayerServer({
   useOpenAI: true,
   tools: {
     curation: registerMusicCurationTools,
-    agent: registerMusicAipiAgent
+    agent: (server, clients) => registerMusicAipiAgent(server, clients)
   },
   layerClients: {
     layer2: {

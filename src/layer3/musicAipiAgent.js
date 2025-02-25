@@ -18,7 +18,7 @@ const openai = new OpenAI({
 /**
  * Register the generic agent with the server
  * @param {object} server - The server instance to register tools with
- * @param {object} clients - The clients object containing layer clients
+ * @param {object} clients - The connected layer clients
  */
 function registerMusicAipiAgent(server, clients) {
   logger.info('Registering Generic AIPI Agent (Layer 3)...');
@@ -26,7 +26,7 @@ function registerMusicAipiAgent(server, clients) {
   // Register the agent immediately
   server.tool(
     'music-aipi-agent',
-    'Process a natural language query and generate a response using available tools',
+    'Generic conversational agent for music discovery and control',
     {
       query: z.string().describe('The user query to process'),
       context: z.string().optional().describe('Additional context information'),
@@ -34,32 +34,6 @@ function registerMusicAipiAgent(server, clients) {
       conversationHistory: z.string().optional().describe('JSON string of conversation history from the front end')
     },
     async ({ query, context = '', responseFormat = 'detailed', conversationHistory = '' }) => {
-      // Temporary simple response for debugging
-      return {
-        content: [
-          {
-            type: "text",
-            text: "hello! this is a simple test response."
-          }
-        ],
-        isError: false
-      };
-
-      /* Original code commented out for now
-      // Check if clients are connected
-      if (!clients.layer1 || !clients.layer2) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "service is starting up, please try again in a moment..."
-            }
-          ],
-          isError: true,
-          unready: true
-        };
-      }
-
       try {
         logger.debug('Processing user query', { queryLength: query.length, responseFormat });
         
@@ -73,12 +47,43 @@ function registerMusicAipiAgent(server, clients) {
           }
         }
         
+        // Get tools from all layers using passed in clients
+        const tools = {
+          layer1: await clients.layer1?.listTools().catch(() => ({ tools: [] })) || { tools: [] },
+          layer2: await clients.layer2?.listTools().catch(() => ({ tools: [] })) || { tools: [] }
+        };
+
+        // Log tools for debugging
+        logger.info(`Tools from layer1: ${tools.layer1.tools?.length || 0} tools`);
+        logger.info(`Tools from layer2: ${tools.layer2.tools?.length || 0} tools`);
+
+        // Normalize tools format
+        const normalizedTools = {
+          layer1: tools.layer1.tools || [],
+          layer2: tools.layer2.tools || []
+        };
+
+        // Check if we have any tools at all
+        const totalTools = Object.values(normalizedTools).reduce((sum, arr) => sum + arr.length, 0);
+        if (totalTools === 0) {
+          logger.warn('No tools available from any layer');
+          return {
+            content: [
+              {
+                type: "text",
+                text: "i'm sorry, i'm still initializing and don't have access to any tools yet. please try again in a moment."
+              }
+            ]
+          };
+        }
+        
         // Handle the query using available tools
         return await handleQuery({ 
           query, 
           context, 
           responseFormat, 
           chatHistory: parsedHistory,
+          tools: normalizedTools,
           clients
         });
       } catch (error) {
@@ -93,7 +98,6 @@ function registerMusicAipiAgent(server, clients) {
           isError: true
         };
       }
-      */
     }
   );
 
@@ -104,74 +108,45 @@ function registerMusicAipiAgent(server, clients) {
  * Handle a user query using available tools
  */
 async function handleQuery(params) {
-  const { query, context = '', responseFormat = 'detailed', chatHistory = [], clients } = params;
-  
+  const { query, context = '', responseFormat = 'detailed', chatHistory = [], tools, clients } = params;
+
   try {
-    logger.info(`Processing user query: "${query}"`);
+    // Select appropriate tool for the query
+    const { toolName, toolArgs } = await selectTool(query, tools);
     
-    // Initialize client state for debugging
-    const clientState = {
-      query,
-      chatHistory,
-      callTree: {
-        initialQuery: query,
-        timestamp: new Date().toISOString(),
-        steps: []
-      }
-    };
-    
-    // Select the appropriate tool for the query
-    const { toolName, toolArgs } = await selectTool(query, clients);
-    
+    // If no tool was selected, handle as a general query
     if (!toolName) {
-      // If no tool was selected, handle as a general query
-      return await handleGeneralQuery(query, context, responseFormat, chatHistory, clients);
+      return await handleGeneralQuery(query, context, responseFormat, chatHistory, tools);
     }
     
-    // Log the selected tool
-    logger.info(`Selected tool: ${toolName}`, { args: toolArgs });
-    
-    // Add tool selection to call tree
-    clientState.callTree.steps.push({
-      type: 'tool_selection',
-      toolName,
-      toolArgs,
-      timestamp: new Date().toISOString()
-    });
-    
-    // Find the tool info to get the layer
-    const toolInfo = findTool(toolName, clients);
-    if (!toolInfo) {
-      logger.error(`Tool ${toolName} not found`);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `i couldn't find the right tool to handle your request. could you try asking in a different way?`
-          }
-        ],
-        isError: true
-      };
+    // Find which layer has this tool
+    const tool = findTool(toolName, tools);
+    if (!tool) {
+      throw new Error(`Selected tool ${toolName} not found in available tools`);
     }
     
-    // Call the selected tool
-    logger.info(`Calling tool ${toolName} from layer ${toolInfo.layer}`);
-    const toolResult = await callTool(toolName, toolArgs, clients);
-    
-    // Add tool result to call tree
-    clientState.callTree.steps.push({
-      type: 'tool_result',
-      toolName,
-      result: toolResult,
-      timestamp: new Date().toISOString()
-    });
+    // Call the tool using the appropriate client
+    let toolResult;
+    if (tool.layer === 'layer1' && clients.layer1) {
+      toolResult = await clients.layer1.callTool({
+        name: toolName,
+        arguments: toolArgs
+      });
+    } else if (tool.layer === 'layer2' && clients.layer2) {
+      toolResult = await clients.layer2.callTool({
+        name: toolName,
+        arguments: toolArgs
+      });
+    } else {
+      throw new Error(`No client available for ${tool.layer}`);
+    }
     
     // Process the tool result
     const processedResult = await processToolResult({
       toolName,
       toolResult,
       chatHistory,
-      clients,
+      tools,
       responseFormat
     });
     
@@ -207,9 +182,6 @@ async function handleQuery(params) {
       });
     }
     
-    // Store the call tree for debugging
-    global.lastCallTree = clientState.callTree;
-    
     return {
       content: response,
       isError: false
@@ -234,105 +206,75 @@ async function handleQuery(params) {
 }
 
 /**
- * Find a tool by name across all layer clients
+ * Find a tool by name in the available tools
  */
-function findTool(toolName, clients) {
-  // Check layer 1
-  const layer1Tools = clients.layer1.getTools();
-  const layer1Tool = layer1Tools.find(t => t.name === toolName);
-  if (layer1Tool) return { ...layer1Tool, layer: 1 };
-
-  // Check layer 2
-  const layer2Tools = clients.layer2.getTools();
-  const layer2Tool = layer2Tools.find(t => t.name === toolName);
-  if (layer2Tool) return { ...layer2Tool, layer: 2 };
-
+function findTool(toolName, tools) {
+  // First check Layer 1
+  const layer1Tool = tools.layer1?.find(t => t.name === toolName);
+  if (layer1Tool) return { ...layer1Tool, layer: 'layer1' };
+  
+  // Then Layer 2
+  const layer2Tool = tools.layer2?.find(t => t.name === toolName);
+  if (layer2Tool) return { ...layer2Tool, layer: 'layer2' };
+  
   return null;
-}
-
-/**
- * Call a tool using the appropriate layer client
- */
-async function callTool(toolName, args, clients) {
-  const client = clients[findTool(toolName, clients).layer];
-  if (!client) {
-    throw new Error(`No client found for tool ${toolName}`);
-  }
-  return await client.callTool({
-    name: toolName,
-    arguments: args
-  });
-}
-
-/**
- * Get all available tools from layer clients
- */
-function getAllTools(clients) {
-  return {
-    layer1: clients.layer1.getTools() || [],
-    layer2: clients.layer2.getTools() || []
-  };
 }
 
 /**
  * Format tools for LLM consumption
  */
-async function formatToolsForLLM(clients) {
-  const allTools = getAllTools(clients);
+function formatToolsForLLM(tools) {
   let formatted = "Available tools:\n\n";
-
-  // Format Layer 1 tools
-  if (allTools.layer1.length) {
-    formatted += "Layer 1 (Music Service Tools):\n";
-    allTools.layer1.forEach(tool => {
-      formatted += `- ${tool.name}: ${tool.description}\n`;
-    });
+  
+  // Combine and format all tools
+  const allTools = [
+    ...(tools.layer1 || []),
+    ...(tools.layer2 || []),
+    ...(tools.layer3 || [])
+  ];
+  
+  allTools.forEach(tool => {
+    formatted += `Tool: ${tool.name}\n`;
+    formatted += `Description: ${tool.description}\n`;
+    
+    if (tool.parameters) {
+      formatted += "Parameters:\n";
+      Object.entries(tool.parameters).forEach(([name, param]) => {
+        formatted += `  - ${name}: ${param.type}${param.optional ? ' (optional)' : ''}\n`;
+        if (param.description) formatted += `    Description: ${param.description}\n`;
+      });
+    }
     formatted += "\n";
-  }
-
-  // Format Layer 2 tools
-  if (allTools.layer2.length) {
-    formatted += "Layer 2 (Music Intelligence Tools):\n";
-    allTools.layer2.forEach(tool => {
-      formatted += `- ${tool.name}: ${tool.description}\n`;
-    });
-  }
-
+  });
+  
   return formatted;
 }
 
 /**
  * Select the appropriate tool for a query
  */
-async function selectTool(query, clients) {
+async function selectTool(query, tools) {
   try {
     // Format tools for LLM
-    const toolsFormatted = await formatToolsForLLM(clients);
+    const toolsFormatted = formatToolsForLLM(tools);
     
     // Create messages array for LLM
     const messages = [
       {
         role: 'system',
-        content: `You are a tool selector for an AI assistant. Your task is to analyze a user query and select the most appropriate tool to handle it.
+        content: `you are a tool selector for a music interface. your task is to analyze a user query and select the most appropriate tool to handle it.
 
 IMPORTANT INSTRUCTIONS:
-1. Select ONLY ONE tool that best matches the user's query and intent
-2. Return your response in JSON format with 'toolName' and 'toolArgs' fields
-3. For 'toolArgs', include ONLY the parameters required by the selected tool
-4. Use EXACT parameter names as specified in the tool descriptions
-5. Extract all necessary information from the user query to fill the tool parameters
-6. If you cannot determine which tool to use or the query doesn't seem to require a specific tool, return null for toolName
+1. select ONLY ONE tool that best matches the user's query and intent
+2. return your response in JSON format with 'toolName' and 'toolArgs' fields
+3. for 'toolArgs', include ONLY the parameters required by the selected tool
+4. use EXACT parameter names as specified in the tool descriptions
+5. extract all necessary information from the user query to fill the tool parameters
+6. if a required parameter is missing from the query, return null for toolName
+7. if the query doesn't seem to require a specific tool, return null for toolName
+8. do not make up or guess parameter values - if you're not sure, return null
 
 ${toolsFormatted}
-
-RESPONSE FORMAT:
-{
-  "toolName": "name-of-selected-tool",
-  "toolArgs": {
-    "param1": "value1",
-    "param2": "value2"
-  }
-}
 
 User query: "${query}"`
       }
@@ -340,10 +282,8 @@ User query: "${query}"`
     
     // Call LLM to select tool
     const llmResponse = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-4o",
       messages,
-      temperature: 0.2,
-      max_tokens: 500,
       response_format: { type: "json_object" }
     });
     
@@ -367,7 +307,7 @@ User query: "${query}"`
     }
     
     // Find the tool in available tools
-    const toolInfo = findTool(toolName, clients);
+    const toolInfo = findTool(toolName, tools);
     
     if (!toolInfo) {
       logger.warn(`Selected tool ${toolName} not found in available tools`);
@@ -389,7 +329,7 @@ User query: "${query}"`
  * Process the result of a tool call and generate a response
  */
 async function processToolResult(params) {
-  const { toolName, toolResult, chatHistory, clients, responseFormat = 'detailed' } = params;
+  const { toolName, toolResult, chatHistory, tools, responseFormat = 'detailed' } = params;
   
   try {
     // Extract content from the tool result
@@ -412,7 +352,7 @@ async function processToolResult(params) {
     });
     
     // Format tools for LLM
-    const toolsFormatted = await formatToolsForLLM(clients);
+    const toolsFormatted = formatToolsForLLM(tools);
     
     // Determine the appropriate system message based on response format
     let systemContent;
@@ -490,7 +430,7 @@ ${content}`
 /**
  * Handle a general query without using specific tools
  */
-async function handleGeneralQuery(query, context, responseFormat, chatHistory, clients) {
+async function handleGeneralQuery(query, context, responseFormat, chatHistory, tools) {
   try {
     logger.info(`Handling general query: "${query}"`);
     
@@ -503,7 +443,7 @@ async function handleGeneralQuery(query, context, responseFormat, chatHistory, c
     });
     
     // Format tools for LLM
-    const toolsFormatted = await formatToolsForLLM(clients);
+    const toolsFormatted = formatToolsForLLM(tools);
     
     // Construct system prompt based on response format
     let systemPrompt;
