@@ -8,6 +8,7 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { z } = require('zod');
 const logger = require('../utils/logger');
 const { MCPBoundaryError } = require('../utils/errors');
+const { registerSpotifyTools } = require('../layer1/spotifyTools');
 
 /**
  * Layer 1 MCP Server
@@ -23,6 +24,9 @@ class Layer1Server {
       name: options.name || 'aipi-layer1-server',
       version: options.version || '1.0.0'
     });
+    
+    // Register Spotify tools
+    registerSpotifyTools(this.server);
     
     this.registerDefaultTools();
     this.registerDefaultResources();

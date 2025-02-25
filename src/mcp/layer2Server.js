@@ -9,6 +9,10 @@ const { z } = require('zod');
 const OpenAI = require('openai');
 const logger = require('../utils/logger');
 const { MCPBoundaryError } = require('../utils/errors');
+const { registerMusicAnalysisTools } = require('../layer2/musicAnalysisTools');
+const { registerPlaylistGenerationTools } = require('../layer2/playlistGenerationTools');
+const { registerMusicDiscoveryTools } = require('../layer2/musicDiscoveryTools');
+const { registerLastfmDiscoveryTools } = require('../layer2/lastfmDiscoveryTools');
 
 // Initialize OpenAI API client
 const openai = new OpenAI({
@@ -64,6 +68,12 @@ class Layer2Server {
     this.registerDefaultTools();
     this.registerDefaultResources();
     this.registerDefaultPrompts();
+    
+    // Register Layer 2 tools
+    registerMusicAnalysisTools(this.server);
+    registerPlaylistGenerationTools(this.server);
+    registerMusicDiscoveryTools(this.server);
+    registerLastfmDiscoveryTools(this.server);
     
     logger.info(`Layer 2 MCP Server initialized`);
   }

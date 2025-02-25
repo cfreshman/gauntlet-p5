@@ -16,7 +16,9 @@
     "mcp:layer3": "node src/mcp/demo.js 3",
     "mcp:test": "node src/mcp/test-client.js",
     "mcp:all": "node src/mcp/run-all.js",
-    "mcp:test-all": "node src/mcp/test-all.js"
+    "mcp:test-all": "node src/mcp/test-all.js",
+    "music-discovery": "node src/cli/music-discovery-cli.js",
+    "music-chat": "node src/chat/music-discovery-chat.js"
   },
   "keywords": [
     "AI",

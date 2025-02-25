@@ -1,0 +1,425 @@
+/**
+ * Last.fm Music Discovery Tools (Layer 2)
+ * 
+ * This module provides intelligent music discovery tools using the Last.fm API.
+ */
+
+const logger = require('../utils/logger');
+const lastfmClient = require('../utils/lastfmClient');
+const spotifyClient = require('../utils/spotifyClient');
+
+/**
+ * Register Last.fm music discovery tools with the server
+ * @param {object} server - The server instance to register tools with
+ */
+function registerLastfmDiscoveryTools(server) {
+  logger.info('Registering Last.fm Music Discovery Tools (Layer 2)...');
+
+  // Register discover-similar-tracks tool
+  server.registerTool({
+    name: 'discover-similar-tracks',
+    description: 'Discovers tracks similar to a specified track using Last.fm',
+    parameters: {
+      type: 'object',
+      required: ['trackName', 'artistName'],
+      properties: {
+        trackName: {
+          type: 'string',
+          description: 'Name of the track to find similar tracks for'
+        },
+        artistName: {
+          type: 'string',
+          description: 'Name of the artist of the track'
+        },
+        limit: {
+          type: 'integer',
+          description: 'Number of similar tracks to return',
+          default: 20
+        },
+        findOnSpotify: {
+          type: 'boolean',
+          description: 'Whether to find the tracks on Spotify',
+          default: true
+        }
+      }
+    },
+    handler: discoverSimilarTracks
+  });
+
+  // Register discover-similar-artists tool
+  server.registerTool({
+    name: 'discover-similar-artists',
+    description: 'Discovers artists similar to a specified artist using Last.fm',
+    parameters: {
+      type: 'object',
+      required: ['artistName'],
+      properties: {
+        artistName: {
+          type: 'string',
+          description: 'Name of the artist to find similar artists for'
+        },
+        limit: {
+          type: 'integer',
+          description: 'Number of similar artists to return',
+          default: 20
+        },
+        includeTopTracks: {
+          type: 'boolean',
+          description: 'Whether to include top tracks for each artist',
+          default: false
+        }
+      }
+    },
+    handler: discoverSimilarArtists
+  });
+
+  // Register discover-by-tag tool
+  server.registerTool({
+    name: 'discover-by-tag',
+    description: 'Discovers top tracks for a specified tag/genre using Last.fm',
+    parameters: {
+      type: 'object',
+      required: ['tag'],
+      properties: {
+        tag: {
+          type: 'string',
+          description: 'Tag or genre to find top tracks for'
+        },
+        limit: {
+          type: 'integer',
+          description: 'Number of tracks to return',
+          default: 20
+        },
+        findOnSpotify: {
+          type: 'boolean',
+          description: 'Whether to find the tracks on Spotify',
+          default: true
+        }
+      }
+    },
+    handler: discoverByTag
+  });
+
+  logger.info('Last.fm Music Discovery Tools registered successfully');
+}
+
+/**
+ * Discovers tracks similar to a specified track using Last.fm
+ * @param {object} params - The parameters for track discovery
+ * @returns {Promise<object>} - The discovery results
+ */
+async function discoverSimilarTracks(params) {
+  const { 
+    trackName, 
+    artistName, 
+    limit = 20,
+    findOnSpotify = true
+  } = params;
+  
+  try {
+    logger.info(`Discovering tracks similar to "${trackName}" by "${artistName}"`);
+    
+    // Get similar tracks from Last.fm
+    const similarTracksResponse = await lastfmClient.getSimilarTracks(trackName, artistName, limit);
+    
+    if (!similarTracksResponse.similartracks || !similarTracksResponse.similartracks.track || similarTracksResponse.similartracks.track.length === 0) {
+      throw new Error('No similar tracks found');
+    }
+    
+    const similarTracks = similarTracksResponse.similartracks.track;
+    logger.info(`Found ${similarTracks.length} similar tracks on Last.fm`);
+    
+    // Process the tracks
+    let processedTracks = similarTracks.map(track => ({
+      name: track.name,
+      artist: track.artist.name,
+      match: parseFloat(track.match) * 10, // Convert match score to percentage
+      url: track.url,
+      images: track.image ? track.image.reduce((acc, img) => {
+        acc[img.size] = img['#text'];
+        return acc;
+      }, {}) : {}
+    }));
+    
+    // Find tracks on Spotify if requested
+    if (findOnSpotify) {
+      processedTracks = await findTracksOnSpotify(processedTracks);
+    }
+    
+    // Generate insights
+    const insights = generateDiscoveryInsights(processedTracks);
+    
+    // Construct the response
+    const response = {
+      sourceTrack: {
+        name: trackName,
+        artist: artistName
+      },
+      similarTracks: processedTracks,
+      insights
+    };
+    
+    return response;
+    
+  } catch (error) {
+    logger.error(`Error discovering similar tracks: ${error.message}`);
+    throw new Error(`Failed to discover similar tracks: ${error.message}`);
+  }
+}
+
+/**
+ * Discovers artists similar to a specified artist using Last.fm
+ * @param {object} params - The parameters for artist discovery
+ * @returns {Promise<object>} - The discovery results
+ */
+async function discoverSimilarArtists(params) {
+  const { 
+    artistName, 
+    limit = 20,
+    includeTopTracks = false
+  } = params;
+  
+  try {
+    logger.info(`Discovering artists similar to "${artistName}"`);
+    
+    // Get similar artists from Last.fm
+    const similarArtistsResponse = await lastfmClient.getSimilarArtists(artistName, limit);
+    
+    if (!similarArtistsResponse.similarartists || !similarArtistsResponse.similarartists.artist || similarArtistsResponse.similarartists.artist.length === 0) {
+      throw new Error('No similar artists found');
+    }
+    
+    const similarArtists = similarArtistsResponse.similarartists.artist;
+    logger.info(`Found ${similarArtists.length} similar artists on Last.fm`);
+    
+    // Process the artists
+    let processedArtists = await Promise.all(similarArtists.map(async (artist) => {
+      const artistData = {
+        name: artist.name,
+        match: parseFloat(artist.match) * 10, // Convert match score to percentage
+        url: artist.url,
+        images: artist.image ? artist.image.reduce((acc, img) => {
+          acc[img.size] = img['#text'];
+          return acc;
+        }, {}) : {}
+      };
+      
+      // Include top tracks if requested
+      if (includeTopTracks) {
+        try {
+          const topTracksResponse = await lastfmClient.getArtistTopTracks(artist.name, 5);
+          if (topTracksResponse.toptracks && topTracksResponse.toptracks.track) {
+            artistData.topTracks = topTracksResponse.toptracks.track.map(track => ({
+              name: track.name,
+              listeners: parseInt(track.listeners, 10),
+              url: track.url
+            }));
+          }
+        } catch (error) {
+          logger.warn(`Could not get top tracks for ${artist.name}: ${error.message}`);
+          artistData.topTracks = [];
+        }
+      }
+      
+      return artistData;
+    }));
+    
+    // Generate insights
+    const insights = {
+      summary: `Discovered ${processedArtists.length} artists similar to ${artistName}.`,
+      matchDistribution: {
+        high: processedArtists.filter(artist => artist.match >= 70).length,
+        medium: processedArtists.filter(artist => artist.match >= 40 && artist.match < 70).length,
+        low: processedArtists.filter(artist => artist.match < 40).length
+      }
+    };
+    
+    // Construct the response
+    const response = {
+      sourceArtist: artistName,
+      similarArtists: processedArtists,
+      insights
+    };
+    
+    return response;
+    
+  } catch (error) {
+    logger.error(`Error discovering similar artists: ${error.message}`);
+    throw new Error(`Failed to discover similar artists: ${error.message}`);
+  }
+}
+
+/**
+ * Discovers top tracks for a specified tag/genre using Last.fm
+ * @param {object} params - The parameters for tag-based discovery
+ * @returns {Promise<object>} - The discovery results
+ */
+async function discoverByTag(params) {
+  const { 
+    tag, 
+    limit = 20,
+    findOnSpotify = true
+  } = params;
+  
+  try {
+    logger.info(`Discovering top tracks for tag "${tag}"`);
+    
+    // Get top tracks by tag from Last.fm
+    const topTracksResponse = await lastfmClient.getTopTracksByTag(tag, limit);
+    
+    if (!topTracksResponse.tracks || !topTracksResponse.tracks.track || topTracksResponse.tracks.track.length === 0) {
+      throw new Error(`No tracks found for tag "${tag}"`);
+    }
+    
+    const topTracks = topTracksResponse.tracks.track;
+    logger.info(`Found ${topTracks.length} top tracks for tag "${tag}" on Last.fm`);
+    
+    // Process the tracks
+    let processedTracks = topTracks.map(track => ({
+      name: track.name,
+      artist: track.artist.name,
+      rank: parseInt(track['@attr']?.rank || '0', 10),
+      url: track.url,
+      images: track.image ? track.image.reduce((acc, img) => {
+        acc[img.size] = img['#text'];
+        return acc;
+      }, {}) : {}
+    }));
+    
+    // Find tracks on Spotify if requested
+    if (findOnSpotify) {
+      processedTracks = await findTracksOnSpotify(processedTracks);
+    }
+    
+    // Generate insights
+    const insights = {
+      summary: `Discovered ${processedTracks.length} top tracks for the "${tag}" tag.`,
+      topArtists: findTopArtists(processedTracks)
+    };
+    
+    // Construct the response
+    const response = {
+      tag,
+      tracks: processedTracks,
+      insights
+    };
+    
+    return response;
+    
+  } catch (error) {
+    logger.error(`Error discovering tracks by tag: ${error.message}`);
+    throw new Error(`Failed to discover tracks by tag: ${error.message}`);
+  }
+}
+
+/**
+ * Find tracks on Spotify based on track name and artist
+ * @param {Array} tracks - Array of tracks with name and artist
+ * @returns {Promise<Array>} - Tracks with Spotify information
+ */
+async function findTracksOnSpotify(tracks) {
+  const tracksWithSpotify = await Promise.all(tracks.map(async (track) => {
+    try {
+      // Search for the track on Spotify
+      const query = `track:${track.name} artist:${track.artist}`;
+      const searchResults = await spotifyClient.search(query, ['track'], 1);
+      
+      if (searchResults.tracks && searchResults.tracks.items.length > 0) {
+        const spotifyTrack = searchResults.tracks.items[0];
+        
+        // Add Spotify information to the track
+        return {
+          ...track,
+          spotify: {
+            id: spotifyTrack.id,
+            uri: spotifyTrack.uri,
+            popularity: spotifyTrack.popularity,
+            previewUrl: spotifyTrack.preview_url,
+            externalUrl: spotifyTrack.external_urls.spotify,
+            album: {
+              id: spotifyTrack.album.id,
+              name: spotifyTrack.album.name,
+              images: spotifyTrack.album.images
+            }
+          }
+        };
+      }
+      
+      // Return the original track if not found on Spotify
+      return {
+        ...track,
+        spotify: null
+      };
+    } catch (error) {
+      logger.warn(`Could not find "${track.name}" by "${track.artist}" on Spotify: ${error.message}`);
+      
+      // Return the original track if there's an error
+      return {
+        ...track,
+        spotify: null
+      };
+    }
+  }));
+  
+  return tracksWithSpotify;
+}
+
+/**
+ * Generate insights from discovered tracks
+ * @param {Array} tracks - Array of track objects
+ * @returns {Object} - Insights object
+ */
+function generateDiscoveryInsights(tracks) {
+  const insights = {
+    summary: `Discovered ${tracks.length} tracks.`,
+    topArtists: findTopArtists(tracks),
+    spotifyAvailability: {
+      available: tracks.filter(track => track.spotify).length,
+      unavailable: tracks.filter(track => !track.spotify).length,
+      percentage: Math.round((tracks.filter(track => track.spotify).length / tracks.length) * 100)
+    }
+  };
+  
+  // Add popularity insights if Spotify data is available
+  const tracksWithPopularity = tracks.filter(track => track.spotify && track.spotify.popularity);
+  
+  if (tracksWithPopularity.length > 0) {
+    const popularityValues = tracksWithPopularity.map(track => track.spotify.popularity);
+    
+    insights.popularityRange = {
+      min: Math.min(...popularityValues),
+      max: Math.max(...popularityValues),
+      average: Math.round(popularityValues.reduce((sum, val) => sum + val, 0) / popularityValues.length)
+    };
+  }
+  
+  return insights;
+}
+
+/**
+ * Find top artists from a list of tracks
+ * @param {Array} tracks - Array of track objects
+ * @returns {Array} - Array of top artists with counts
+ */
+function findTopArtists(tracks) {
+  const artistCounts = {};
+  
+  tracks.forEach(track => {
+    const artistName = track.artist;
+    if (!artistCounts[artistName]) {
+      artistCounts[artistName] = {
+        name: artistName,
+        count: 0
+      };
+    }
+    artistCounts[artistName].count++;
+  });
+  
+  return Object.values(artistCounts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+}
+
+module.exports = {
+  registerLastfmDiscoveryTools
+}; 
