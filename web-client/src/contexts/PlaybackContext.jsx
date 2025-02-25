@@ -2,34 +2,61 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 
 const PlaybackContext = createContext(null);
 
-export const PlaybackProvider = ({ children, socket }) => {
+export const PlaybackProvider = ({ children }) => {
   const [playbackState, setPlaybackState] = useState(null);
   const [playbackDevices, setPlaybackDevices] = useState([]);
   const [playerExpanded, setPlayerExpanded] = useState(false);
-  const deviceIdRef = useRef(null);
+  const pollingIntervalRef = useRef(null);
 
-  // Socket event handlers
+  // Fetch playback state and devices
+  const fetchPlaybackState = useCallback(async () => {
+    try {
+      const response = await fetch('/api/playback/state', {
+        credentials: 'include'
+      });
+      const data = await response.json();
+      if (!data.error) {
+        setPlaybackState(data);
+      }
+    } catch (error) {
+      console.error('[PlaybackContext] Error fetching playback state:', error);
+    }
+  }, []);
+
+  const fetchPlaybackDevices = useCallback(async () => {
+    try {
+      const response = await fetch('/api/playback/devices', {
+        credentials: 'include'
+      });
+      const data = await response.json();
+      if (!data.error) {
+        setPlaybackDevices(data.devices || []);
+      }
+    } catch (error) {
+      console.error('[PlaybackContext] Error fetching devices:', error);
+    }
+  }, []);
+
+  // Start polling on mount
   useEffect(() => {
-    if (!socket) return;
+    // Initial fetch
+    fetchPlaybackState();
+    fetchPlaybackDevices();
 
-    socket.on('playback-state', setPlaybackState);
-    socket.on('playback-devices', data => setPlaybackDevices(data.devices || []));
-    socket.on('playback-error', error => console.error('[PlaybackContext] Playback error:', error));
-
-    // Get initial state
-    socket.emit('playback-command', { action: 'get-playback-state' });
-    socket.emit('playback-command', { action: 'get-devices' });
+    // Set up polling interval
+    pollingIntervalRef.current = setInterval(() => {
+      fetchPlaybackState();
+      fetchPlaybackDevices();
+    }, 1000);
 
     return () => {
-      socket.off('playback-state');
-      socket.off('playback-devices');
-      socket.off('playback-error');
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
     };
-  }, [socket]);
+  }, [fetchPlaybackState, fetchPlaybackDevices]);
 
-  const sendPlaybackCommand = useCallback((action, params = {}) => {
-    if (!socket?.connected) return;
-
+  const sendPlaybackCommand = useCallback(async (action, params = {}) => {
     // Convert camelCase to snake_case
     const normalizedParams = { ...params };
     if (params.positionMs !== undefined) {
@@ -60,23 +87,32 @@ export const PlaybackProvider = ({ children, socket }) => {
         break;
     }
 
-    // Send command
-    const device_id = normalizedParams.device_id || playbackState?.device?.id;
-    socket.emit('playback-command', {
-      action,
-      params: {
-        ...normalizedParams,
-        device_id: device_id || undefined
-      }
-    });
+    try {
+      // Send command
+      const device_id = normalizedParams.device_id || playbackState?.device?.id;
+      const endpoint = `/api/playback/${action}`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          ...normalizedParams,
+          deviceId: device_id
+        })
+      });
 
-    // Request fresh state for next/previous since we can't predict the next track
-    if (action === 'next' || action === 'previous') {
-      setTimeout(() => {
-        socket.emit('playback-command', { action: 'get-playback-state' });
-      }, 300);
+      if (!response.ok) {
+        throw new Error(`Failed to send playback command: ${response.statusText}`);
+      }
+
+      // Fetch fresh state after command
+      await fetchPlaybackState();
+    } catch (error) {
+      console.error('[PlaybackContext] Error sending playback command:', error);
     }
-  }, [socket, playbackState]);
+  }, [playbackState, fetchPlaybackState]);
 
   const value = {
     playbackState,

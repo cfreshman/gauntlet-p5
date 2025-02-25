@@ -1,26 +1,22 @@
 import express from 'express';
 import cors from 'cors';
-import { createServer } from 'http';
-import http from 'http';
-import { Server } from 'socket.io';
-import { config } from 'dotenv';
+import session from 'express-session';
+import logger from './utils/logger.js';
+import AipiLayerClient from './mcp/AipiLayerClient.js';
+import spotifyClient from './utils/spotifyClient.js';
+import dotenv from 'dotenv';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
+// Load environment variables
 const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: path.join(__dirname, '../.env') });
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
-import logger from './utils/logger.js';
-import mcpClient from './utils/mcp-client.js';
-import spotifyClient from './utils/spotifyClient.js';
-import { processUserMessage, generateSystemPrompt } from './chat/message-processor.js';
-import toolFormatter from './utils/tool-formatter.js';
-import session from 'express-session';
-import fetch from 'node-fetch';
-
-// create express app
+// Create express app
 const app = express();
+
+// Add middleware
 app.use(cors({
   origin: ['http://localhost:3000', 'http://localhost:3004'],
   credentials: true,
@@ -29,113 +25,58 @@ app.use(cors({
   exposedHeaders: ['set-cookie']
 }));
 app.use(express.json());
-
-// Set up session middleware
-const sessionMiddleware = session({
-  secret: process.env.SESSION_SECRET || 'music-aipi-secret',
-  resave: true,
-  saveUninitialized: false,
-  cookie: { 
+app.use(session({
+  secret: 'music-aipi-secret',
+  resave: false,
+  saveUninitialized: true,
+  cookie: {
     secure: false,
     sameSite: 'lax',
-    maxAge: 24 * 60 * 60 * 1000,
-    path: '/',
-    httpOnly: true
-  },
-  name: 'connect.sid'
-});
-
-// Store the session middleware for access to the session store
-app.use(sessionMiddleware);
-
-// Make session store accessible
-const sessionStore = sessionMiddleware.store;
-app.set('sessionStore', sessionStore);
-
-// serve static files from web-client/dist if they exist
-app.use(express.static(path.join(__dirname, '../web-client/dist')));
-
-// create http server and socket.io instance
-const server = createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: ['http://localhost:3000', 'http://localhost:3004'],
-    methods: ['GET', 'POST', 'OPTIONS'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
-    exposedHeaders: ['set-cookie']
-  },
-  allowEIO3: true,
-  path: '/socket.io',
-  transports: ['polling', 'websocket'],
-  cookie: {
-    name: 'io',
-    path: '/',
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: false, // Set to false for development
-    domain: 'localhost'  // Added domain
-  },
-  pingTimeout: 60000,
-  pingInterval: 25000,
-  connectTimeout: 45000
-});
-
-// Use the session middleware with socket.io
-const wrap = middleware => (socket, next) => middleware(socket.request, {}, next);
-io.use(wrap(sessionMiddleware));
-
-// Add error handling middleware for socket.io
-io.engine.on("connection_error", (err) => {
-  console.error('Socket.io connection error:', err);
-});
-
-// Add middleware to handle authentication
-io.use((socket, next) => {
-  const session = socket.request.session;
-  if (!session) {
-    return next(new Error('Session not found'));
+    maxAge: 24 * 60 * 60 * 1000
   }
-  
-  // Store session ID in socket for later use
-  socket.sessionID = session.id;
-  
-  // Log successful session attachment
-  console.log(`Session attached to socket ${socket.id}:`, {
-    sessionId: session.id,
-    userId: session.spotifyUserId || 'not authenticated'
-  });
-  
-  // Check if user is authenticated
-  if (!session.spotifyUserId) {
-    return next(new Error('Authentication required'));
+}));
+
+// Create layer client
+const client = new AipiLayerClient({
+  name: 'web-client',
+  layerServers: {
+    layer1: {
+      port: 3001,
+      wsPort: 3011
+    },
+    layer2: {
+      port: 3002,
+      wsPort: 3012
+    },
+    layer3: {
+      port: 3003,
+      wsPort: 3013
+    }
   }
-  
-  next();
 });
 
-// Track active connections
-let activeConnections = 0;
+// Start client connections
+await client.start();
 
-// Store socket connections by session ID
-const socketsBySession = {};
-
-// Spotify authentication routes
+// Spotify auth routes
 app.get('/auth/spotify', (req, res) => {
   try {
-    // Generate a random state string for security
+    logger.info('Starting Spotify authentication...');
+    
     const state = spotifyClient.generateRandomString(16);
+    logger.info('Generated state:', state);
     
-    // Store the state in the session
     req.session.spotifyAuthState = state;
+    logger.info('Stored state in session');
     
-    // Get the authorization URL
+    logger.info('Getting authorization URL...');
     const authUrl = spotifyClient.getAuthorizationUrl(state);
+    logger.info('Generated auth URL:', authUrl);
     
-    // Redirect to Spotify authorization page
+    logger.info('Redirecting to Spotify...');
     res.redirect(authUrl);
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error initiating Spotify auth:`, error);
+    logger.error('Error initiating Spotify auth:', error.message, error.stack);
     res.status(500).json({ error: 'Failed to initiate Spotify authentication' });
   }
 });
@@ -144,685 +85,246 @@ app.get('/callback', async (req, res) => {
   try {
     const { code, state, error } = req.query;
     
-    // Check if there was an error
     if (error) {
-      console.error(`[${new Date().toISOString()}] Spotify auth error:`, error);
+      logger.error('Spotify auth error:', error);
       return res.redirect('/?error=' + encodeURIComponent(error));
     }
     
-    // Check if the state matches
     if (!req.session.spotifyAuthState || state !== req.session.spotifyAuthState) {
-      console.error(`[${new Date().toISOString()}] State mismatch in Spotify auth`);
+      logger.error('State mismatch in Spotify auth');
       return res.redirect('/?error=state_mismatch');
     }
     
-    // Exchange the code for tokens
+    // Exchange code for tokens
     const tokens = await spotifyClient.exchangeCodeForTokens(code);
-    console.log(`[${new Date().toISOString()}] Tokens received:`, { 
-      accessTokenLength: tokens.accessToken.length,
-      hasRefreshToken: !!tokens.refreshToken,
-      expirationTime: new Date(tokens.expirationTime).toISOString()
+    
+    // Make API request with the fresh access token
+    const response = await fetch('https://api.spotify.com/v1/me', {
+      headers: {
+        'Authorization': `Bearer ${tokens.accessToken}`
+      }
     });
     
-    // Create a temporary user ID to store the tokens
-    const tempUserId = 'temp-' + Date.now();
+    if (!response.ok) {
+      throw new Error(`Failed to get user profile: ${response.status}`);
+    }
     
-    // Store the tokens in the spotifyClient
-    spotifyClient.storeUserTokens(tempUserId, {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expirationTime: tokens.expirationTime
-    });
-    
-    // Get user profile to get the user ID
-    const userProfile = await spotifyClient.getCurrentUserProfile(tempUserId);
-    
-    // Log the full user profile for debugging
-    console.log(`[${new Date().toISOString()}] User profile:`, {
-      id: userProfile.id,
-      uri: userProfile.uri,
-      href: userProfile.href,
-      type: userProfile.type
-    });
-    
-    // Use the numeric ID from the profile
+    const userProfile = await response.json();
     const userId = userProfile.id;
     
-    // Update the tokens with the real user ID
-    spotifyClient.storeUserTokens(userId, {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expirationTime: tokens.expirationTime
-    });
-    
-    // Remove the temporary user tokens
-    spotifyClient.storeUserTokens(tempUserId, null);
-    
-    // Store the tokens and user ID in the session
+    // Store tokens in both session and Spotify client
     req.session.spotifyTokens = tokens;
     req.session.spotifyUserId = userId;
+    spotifyClient.storeUserTokens(userId, tokens);
     
-    // Notify the socket if it exists
-    const socketId = socketsBySession[req.sessionID];
-    if (socketId) {
-      const socket = io.sockets.sockets.get(socketId);
-      if (socket) {
-        socket.emit('auth-success', {
-          userId,
-          displayName: userProfile.display_name,
-          profileUrl: userProfile.external_urls?.spotify
-        });
-      }
-    }
-    
-    // Check if the request came from the dev server
-    const referer = req.get('Referer') || '';
-    if (referer.includes('3004')) {
-      // Redirect back to the dev server
-      return res.redirect('http://localhost:3004/?auth=success');
-    }
-    
-    // Redirect back to the app
     res.redirect('/?auth=success');
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in Spotify callback:`, error);
+    logger.error('Error in Spotify callback:', error);
     res.redirect('/?error=' + encodeURIComponent('Failed to authenticate with Spotify'));
   }
 });
 
-// Check auth status
+// Auth status endpoint
 app.get('/api/auth/status', (req, res) => {
-  if (req.session.spotifyUserId && req.session.spotifyTokens) {
-    res.json({
-      authenticated: true,
-      userId: req.session.spotifyUserId
-    });
-  } else {
-    res.json({
-      authenticated: false
-    });
-  }
+  res.json({
+    authenticated: !!(req.session.spotifyUserId && req.session.spotifyTokens),
+    userId: req.session.spotifyUserId
+  });
 });
 
-// Logout route
+// Logout endpoint
 app.get('/api/auth/logout', (req, res) => {
-  // Clear the session
   req.session.spotifyTokens = null;
   req.session.spotifyUserId = null;
-  
   res.json({ success: true });
 });
 
-// Socket.IO connection handling
-io.on('connection', async (socket) => {
+// Spotify token endpoint for Web Playback SDK
+app.get('/api/spotify/token', async (req, res) => {
   try {
-    // Get session ID from socket
-    const sessionId = socket.request.session?.id;
-    const userId = socket.request.session?.spotifyUserId;
-    
-    // Store socket connection
-    socketsBySession[sessionId] = socket.id;
-    activeConnections++;
-    
-    logger.info(`Client connected - Session: ${sessionId}, User: ${userId}, Active connections: ${activeConnections}`);
-    
-    // Handle incoming messages
-    socket.on('user_message', async (data) => {
-      try {
-        logger.info('Received message from client:', { 
-          messageLength: data.message.length,
-          userId,
-          sessionId 
-        });
-        
-        // Process the message
-        const response = await processUserMessage(data.message, userId);
-        
-        // Send response back to client
-        socket.emit('assistant_response', {
-          type: 'message',
-          content: response
-        });
-      } catch (error) {
-        logger.error('Error processing message:', { 
-          error: error.message,
-          userId,
-          sessionId
-        });
-        
-        socket.emit('assistant_response', {
-          type: 'error',
-          content: {
+    if (!req.session.spotifyUserId || !req.session.spotifyTokens) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const userId = req.session.spotifyUserId;
+    const tokens = req.session.spotifyTokens;
+
+    if (Date.now() >= tokens.expirationTime) {
+      const newTokens = await spotifyClient.refreshAccessToken(tokens.refreshToken);
+      
+      // Update tokens in both session and Spotify client
+      req.session.spotifyTokens = newTokens;
+      spotifyClient.storeUserTokens(userId, {
+        ...tokens,
+        accessToken: newTokens.accessToken,
+        expirationTime: newTokens.expirationTime
+      });
+      
+      res.json({ token: newTokens.accessToken });
+    } else {
+      res.json({ token: tokens.accessToken });
+    }
+  } catch (error) {
+    logger.error('Error getting Spotify token:', error);
+    res.status(500).json({ error: 'Failed to get token' });
+  }
+});
+
+// Playback endpoints
+app.get('/api/playback/state', async (req, res) => {
+  try {
+    if (!req.session.spotifyUserId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const state = await spotifyClient.getPlaybackState(req.session.spotifyUserId);
+    res.json(state);
+  } catch (error) {
+    logger.error('Error getting playback state:', error);
+    res.status(500).json({ error: 'Failed to get playback state' });
+  }
+});
+
+app.get('/api/playback/devices', async (req, res) => {
+  try {
+    if (!req.session.spotifyUserId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const devices = await spotifyClient.getAvailableDevices(req.session.spotifyUserId);
+    res.json(devices);
+  } catch (error) {
+    logger.error('Error getting devices:', error);
+    res.status(500).json({ error: 'Failed to get devices' });
+  }
+});
+
+app.post('/api/playback/play', async (req, res) => {
+  try {
+    if (!req.session.spotifyUserId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const { deviceId, contextUri, uris, offset, positionMs } = req.body;
+    await spotifyClient.startPlayback(deviceId, contextUri, uris, offset, positionMs, req.session.spotifyUserId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error starting playback:', error);
+    res.status(500).json({ error: 'Failed to start playback' });
+  }
+});
+
+app.post('/api/playback/pause', async (req, res) => {
+  try {
+    if (!req.session.spotifyUserId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const { deviceId } = req.body;
+    await spotifyClient.pausePlayback(deviceId, req.session.spotifyUserId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error pausing playback:', error);
+    res.status(500).json({ error: 'Failed to pause playback' });
+  }
+});
+
+app.post('/api/playback/next', async (req, res) => {
+  try {
+    if (!req.session.spotifyUserId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const { deviceId } = req.body;
+    await spotifyClient.skipToNext(deviceId, req.session.spotifyUserId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error skipping to next:', error);
+    res.status(500).json({ error: 'Failed to skip to next' });
+  }
+});
+
+app.post('/api/playback/previous', async (req, res) => {
+  try {
+    if (!req.session.spotifyUserId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const { deviceId } = req.body;
+    await spotifyClient.skipToPrevious(deviceId, req.session.spotifyUserId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error skipping to previous:', error);
+    res.status(500).json({ error: 'Failed to skip to previous' });
+  }
+});
+
+// Chat endpoint
+app.post('/api/chat', async (req, res) => {
+  try {
+    if (!req.session.spotifyUserId) {
+      return res.status(401).json({
+        content: [
+          {
             type: "text",
-            text: `i'm sorry, something went wrong while processing your message. please try again.`
+            text: "please log in with spotify first"
           }
-        });
-      }
+        ],
+        isError: true
+      });
+    }
+
+    const { query, context, responseFormat, conversationHistory } = req.body;
+
+    // Call the AIPI agent tool
+    const result = await client.callTool('music-aipi-agent', {
+      query,
+      context,
+      responseFormat,
+      conversationHistory,
+      userId: req.session.spotifyUserId
     });
 
-    // Handle playback commands
-    socket.on('playback-command', async (data) => {
-      try {
-        const { action, params = {} } = data;
-        const userId = socket.request.session?.spotifyUserId;
-        console.log('[Playback Command]', {
-          action,
-          params,
-          userId,
-          hasSession: !!socket.request.session,
-          sessionId: socket.request.session?.id,
-          timestamp: new Date().toISOString()
-        });
-
-        if (!userId) {
-          throw new Error('Not authenticated');
+    res.json(result);
+  } catch (error) {
+    logger.error('Error in chat endpoint:', error);
+    res.status(500).json({
+      content: [
+        {
+          type: "text",
+          text: "sorry, something went wrong. please try again in a moment."
         }
-
-        let result;
-        switch (action) {
-          case 'get-playback-state':
-            console.log('[Playback] Requesting state from Spotify for user:', userId);
-            result = await spotifyClient.getPlaybackState(userId);
-            console.log('[Playback] Received state from Spotify:', {
-              hasState: !!result,
-              isPlaying: result?.is_playing,
-              track: result?.item?.name,
-              device: result?.device?.name
-            });
-            socket.emit('playback-state', result);
-            break;
-
-          case 'get-currently-playing':
-            console.log('[Playback] Requesting currently playing from Spotify for user:', userId);
-            result = await spotifyClient.getCurrentlyPlaying(userId);
-            console.log('[Playback] Received currently playing from Spotify:', {
-              hasTrack: !!result,
-              isPlaying: result?.is_playing,
-              track: result?.item?.name,
-              progress: result?.progress_ms
-            });
-            socket.emit('currently-playing', result);
-            break;
-
-          case 'get-devices':
-            console.log('[Playback] Requesting devices from Spotify for user:', userId);
-            result = await spotifyClient.getAvailableDevices(userId);
-            console.log('[Playback] Received devices from Spotify:', {
-              deviceCount: result?.devices?.length,
-              devices: result?.devices?.map(d => ({
-                id: d.id,
-                name: d.name,
-                type: d.type,
-                isActive: d.is_active
-              }))
-            });
-            socket.emit('playback-devices', result);
-            break;
-
-          case 'play':
-            await spotifyClient.startPlayback(
-              params.deviceId,
-              params.contextUri,
-              params.uris,
-              params.offset,
-              params.positionMs,
-              userId
-            );
-            socket.emit('playback-result', { success: true });
-            break;
-
-          case 'pause':
-            await spotifyClient.pausePlayback(params.deviceId, userId);
-            socket.emit('playback-result', { success: true });
-            break;
-
-          case 'next':
-            await spotifyClient.skipToNext(params.deviceId, userId);
-            socket.emit('playback-result', { success: true });
-            break;
-
-          case 'previous':
-            await spotifyClient.skipToPrevious(params.deviceId, userId);
-            socket.emit('playback-result', { success: true });
-            break;
-
-          case 'seek':
-            await spotifyClient.seekToPosition(parseInt(params.position_ms, 10), params.device_id, userId);
-            socket.emit('playback-result', { success: true });
-            break;
-
-          case 'volume':
-            await spotifyClient.setPlaybackVolume(params.volumePercent, params.deviceId, userId);
-            socket.emit('playback-result', { success: true });
-            break;
-
-          case 'transfer':
-            await spotifyClient.transferPlayback(params.deviceId, params.play || false, userId);
-            socket.emit('playback-result', { success: true });
-            break;
-
-          default:
-            socket.emit('playback-error', { error: `Unknown command: ${action}` });
-        }
-
-        // After any successful command, get the latest playback state
-        if (action !== 'get-playback-state' && action !== 'get-devices') {
-          const newState = await spotifyClient.getPlaybackState(userId);
-          socket.emit('playback-state', newState);
-        }
-      } catch (error) {
-        logger.error('Error handling playback command:', { 
-          error: error.message,
-          action: data.action,
-          userId 
-        });
-        socket.emit('playback-error', { error: error.message });
-      }
+      ],
+      isError: true
     });
-
-    // Handle token requests for Web Playback SDK
-    socket.on('get-spotify-token', async () => {
-      try {
-        const userId = socket.request.session?.spotifyUserId;
-        if (!userId) {
-          throw new Error('Not authenticated');
-        }
-
-        // Get user tokens
-        const userTokens = spotifyClient.getUserTokens(userId);
-        if (!userTokens || !userTokens.accessToken) {
-          throw new Error('No access token available');
-        }
-
-        // Check if token needs refresh
-        if (userTokens.expirationTime && Date.now() >= userTokens.expirationTime) {
-          const newTokens = await spotifyClient.refreshAccessToken(userTokens.refreshToken);
-          spotifyClient.storeUserTokens(userId, {
-            ...userTokens,
-            accessToken: newTokens.accessToken,
-            expirationTime: newTokens.expirationTime
-          });
-          socket.emit('spotify-token', newTokens.accessToken);
-        } else {
-          socket.emit('spotify-token', userTokens.accessToken);
-        }
-      } catch (error) {
-        logger.error('Error getting Spotify token:', error.message);
-        socket.emit('spotify-token-error', { error: error.message });
-      }
-    });
-    
-    // Handle disconnection
-    socket.on('disconnect', () => {
-      delete socketsBySession[sessionId];
-      activeConnections--;
-      logger.info(`Client disconnected - Session: ${sessionId}, User: ${userId}, Active connections: ${activeConnections}`);
-    });
-  } catch (error) {
-    logger.error('Error in socket connection:', error);
-    socket.disconnect();
   }
 });
 
-// Playback API endpoints
-app.get('/api/playback/state', (req, res) => {
-  try {
-    if (!req.session.spotifyUserId || !req.session.spotifyTokens) {
-      return res.status(401).json({ error: 'Not authenticated with Spotify' });
-    }
-    
-    spotifyClient.getPlaybackState(null, req.session.spotifyUserId)
-      .then(state => {
-        res.json(state);
-      })
-      .catch(error => {
-        console.error(`[${new Date().toISOString()}] Error getting playback state:`, error);
-        res.status(500).json({ error: 'Failed to get playback state' });
-      });
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in playback state endpoint:`, error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.get('/api/playback/devices', (req, res) => {
-  try {
-    if (!req.session.spotifyUserId || !req.session.spotifyTokens) {
-      return res.status(401).json({ error: 'Not authenticated with Spotify' });
-    }
-    
-    spotifyClient.getAvailableDevices(req.session.spotifyUserId)
-      .then(devices => {
-        res.json(devices);
-      })
-      .catch(error => {
-        console.error(`[${new Date().toISOString()}] Error getting devices:`, error);
-        res.status(500).json({ error: 'Failed to get devices' });
-      });
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in devices endpoint:`, error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.post('/api/playback/play', (req, res) => {
-  try {
-    if (!req.session.spotifyUserId || !req.session.spotifyTokens) {
-      return res.status(401).json({ error: 'Not authenticated with Spotify' });
-    }
-    
-    const { deviceId, contextUri, uris, offset, positionMs } = req.body || {};
-    
-    spotifyClient.startResumePlayback(deviceId, contextUri, uris, offset, positionMs, req.session.spotifyUserId)
-      .then(() => {
-        res.json({ success: true });
-      })
-      .catch(error => {
-        console.error(`[${new Date().toISOString()}] Error starting playback:`, error);
-        res.status(500).json({ error: 'Failed to start playback' });
-      });
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in play endpoint:`, error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.post('/api/playback/pause', (req, res) => {
-  try {
-    if (!req.session.spotifyUserId || !req.session.spotifyTokens) {
-      return res.status(401).json({ error: 'Not authenticated with Spotify' });
-    }
-    
-    const { deviceId } = req.body || {};
-    
-    spotifyClient.pausePlayback(deviceId, req.session.spotifyUserId)
-      .then(() => {
-        res.json({ success: true });
-      })
-      .catch(error => {
-        console.error(`[${new Date().toISOString()}] Error pausing playback:`, error);
-        res.status(500).json({ error: 'Failed to pause playback' });
-      });
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in pause endpoint:`, error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.post('/api/playback/next', (req, res) => {
-  try {
-    if (!req.session.spotifyUserId || !req.session.spotifyTokens) {
-      return res.status(401).json({ error: 'Not authenticated with Spotify' });
-    }
-    
-    const { deviceId } = req.body || {};
-    
-    spotifyClient.skipToNext(deviceId, req.session.spotifyUserId)
-      .then(() => {
-        res.json({ success: true });
-      })
-      .catch(error => {
-        console.error(`[${new Date().toISOString()}] Error skipping to next:`, error);
-        res.status(500).json({ error: 'Failed to skip to next track' });
-      });
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in next endpoint:`, error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.post('/api/playback/previous', (req, res) => {
-  try {
-    if (!req.session.spotifyUserId || !req.session.spotifyTokens) {
-      return res.status(401).json({ error: 'Not authenticated with Spotify' });
-    }
-    
-    const { deviceId } = req.body || {};
-    
-    spotifyClient.skipToPrevious(deviceId, req.session.spotifyUserId)
-      .then(() => {
-        res.json({ success: true });
-      })
-      .catch(error => {
-        console.error(`[${new Date().toISOString()}] Error skipping to previous:`, error);
-        res.status(500).json({ error: 'Failed to skip to previous track' });
-      });
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in previous endpoint:`, error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.post('/api/playback/transfer', (req, res) => {
-  try {
-    if (!req.session.spotifyUserId || !req.session.spotifyTokens) {
-      return res.status(401).json({ error: 'Not authenticated with Spotify' });
-    }
-    
-    const { deviceId, play } = req.body || {};
-    
-    if (!deviceId) {
-      return res.status(400).json({ error: 'Device ID is required' });
-    }
-    
-    spotifyClient.transferPlayback(deviceId, play, req.session.spotifyUserId)
-      .then(() => {
-        res.json({ success: true });
-      })
-      .catch(error => {
-        console.error(`[${new Date().toISOString()}] Error transferring playback:`, error);
-        res.status(500).json({ error: 'Failed to transfer playback' });
-      });
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in transfer endpoint:`, error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Add endpoint to get available tools
+// Get available tools
 app.get('/api/tools', async (req, res) => {
   try {
-    // Initialize MCP client if not already initialized
-    if (!mcpClient.initialized) {
-      await mcpClient.initialize();
-    }
-    
-    const tools = mcpClient.getAllTools();
+    const tools = client.getAllTools();
     res.json(tools);
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error fetching tools:`, error);
+    logger.error('Error fetching tools:', error);
     res.status(500).json({ error: 'Failed to fetch tools' });
   }
 });
 
-// Add endpoint to get tool descriptions for debugging
-app.get('/api/tool-descriptions', async (req, res) => {
-  try {
-    // Initialize MCP client if not already initialized
-    if (!mcpClient.initialized) {
-      await mcpClient.initialize();
-    }
-    
-    const allTools = mcpClient.getAllTools();
-    
-    // Format tools as JSON for LLM prompting
-    const toolsDescription = toolFormatter.formatAllToolsForLLM(allTools, {
-      header: "Available tools:\n"
-    });
-    
-    // Create simplified tool representations
-    const simplifiedTools = {};
-    
-    // Process each layer
-    ['layer1', 'layer2', 'layer3'].forEach(layer => {
-      if (allTools[layer] && allTools[layer].length > 0) {
-        simplifiedTools[layer] = allTools[layer].map(tool => toolFormatter.simplifyToolForLLM(tool));
-      }
-    });
-    
-    // Store in global scope for debug logs
-    global.lastToolDescriptions = toolsDescription;
-    
-    res.json({
-      toolsDescription,
-      rawTools: allTools,
-      simplifiedTools
-    });
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error generating tool descriptions:`, error);
-    res.status(500).json({ error: 'Failed to generate tool descriptions' });
-  }
-});
-
-// Add endpoint to get connection status
+// Get connection status
 app.get('/api/status', (req, res) => {
   const status = {
-    connections: mcpClient.getConnectionStatus(),
-    activeWebClients: activeConnections
+    connections: client.getConnectionStatus(),
+    ready: client.isFullyConnected()
   };
   res.json(status);
 });
 
-// Log all HTTP requests
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
+// Health check endpoint
+app.get('/health', (req, res) => {
+  const isReady = client.isFullyConnected();
+  res.json({
+    status: isReady ? 'ok' : 'starting',
+    ready: isReady
+  });
 });
 
-// fallback route for SPA
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../web-client/dist/index.html'));
-});
-
-// Check if MCP servers are ready
-async function waitForMcpServers() {
-  const maxRetries = 5;
-  const retryDelay = 2000;
-  const layers = [3001, 3002, 3003];
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`[${new Date().toISOString()}] Checking MCP servers health (attempt ${attempt}/${maxRetries})...`);
-      
-      // Check all layers
-      const results = await Promise.all(layers.map(async (port) => {
-        return new Promise((resolve) => {
-          const req = http.request({
-            hostname: 'localhost',
-            port: port,
-            path: '/health',
-            method: 'GET'
-          }, (res) => {
-            resolve(res.statusCode === 200);
-          });
-          
-          req.on('error', () => {
-            resolve(false);
-          });
-          
-          req.end();
-        });
-      }));
-      
-      if (results.every(ok => ok)) {
-        console.log(`[${new Date().toISOString()}] All MCP servers are ready`);
-        return true;
-      }
-      
-      console.log(`[${new Date().toISOString()}] Some MCP servers not ready yet, retrying in ${retryDelay}ms...`);
-      await new Promise(resolve => setTimeout(resolve, retryDelay));
-    } catch (error) {
-      console.error(`[${new Date().toISOString()}] Error checking MCP servers:`, error);
-      if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
-      }
-    }
-  }
-  
-  throw new Error('MCP servers not ready after maximum retries');
-}
-
-// Initialize MCP client before starting server
-async function startServer() {
-  try {
-    // Check Spotify credentials
-    await checkSpotifyCredentials();
-    
-    // Wait for MCP servers to be ready
-    await waitForMcpServers();
-    
-    // Initialize MCP client
-    console.log(`[${new Date().toISOString()}] Initializing MCP client...`);
-    await mcpClient.initialize();
-    console.log(`[${new Date().toISOString()}] MCP client initialized`);
-    
-    // Log connection status
-    const status = mcpClient.getConnectionStatus();
-    console.log(`[${new Date().toISOString()}] MCP connection status:`, status);
-    
-    // start server
-    const PORT = process.env.PORT || 3000;
-    server.listen(PORT, () => {
-      console.log(`[${new Date().toISOString()}] Web server running on port ${PORT}`);
-      console.log(`[${new Date().toISOString()}] API endpoints:`);
-      console.log(`  - GET /api/tools - List all available tools`);
-      console.log(`  - GET /api/status - Get connection status`);
-      console.log(`  - GET /auth/spotify - Authenticate with Spotify`);
-      console.log(`  - GET /api/auth/status - Check authentication status`);
-      console.log(`  - GET /api/playback/* - Playback API endpoints`);
-    });
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error starting server:`, error);
-    process.exit(1);
-  }
-}
-
-/**
- * Check if Spotify API credentials are valid
- */
-async function checkSpotifyCredentials() {
-  try {
-    console.log(`[${new Date().toISOString()}] Checking Spotify API credentials...`);
-    
-    const clientId = process.env.SPOTIFY_CLIENT_ID;
-    const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-    const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
-    
-    if (!clientId || !clientSecret || !redirectUri) {
-      throw new Error('Spotify client ID, client secret, or redirect URI not set in environment variables');
-    }
-    
-    console.log(`[${new Date().toISOString()}] Spotify credentials found:`);
-    console.log(`  - Client ID: ${clientId.substring(0, 5)}...${clientId.substring(clientId.length - 5)}`);
-    console.log(`  - Client Secret: ${clientSecret.substring(0, 3)}...${clientSecret.substring(clientSecret.length - 3)}`);
-    console.log(`  - Redirect URI: ${redirectUri}`);
-    
-    // Try to get a client credentials token
-    try {
-      await spotifyClient.getClientCredentialsToken();
-      console.log(`[${new Date().toISOString()}] Successfully obtained Spotify client credentials token`);
-    } catch (error) {
-      console.error(`[${new Date().toISOString()}] Error getting Spotify client credentials token:`, error.message);
-      throw new Error('Failed to validate Spotify API credentials. Check your client ID and client secret.');
-    }
-    
-    console.log(`[${new Date().toISOString()}] Spotify API credentials are valid`);
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Spotify credentials check failed:`, error.message);
-    throw error;
-  }
-}
-
-// Start the server
-startServer();
-
-// Log server errors
-server.on('error', (error) => {
-  console.error(`[${new Date().toISOString()}] Server error:`, error);
-});
-
-export {
-  startServer,
-  waitForMcpServers,
-  checkSpotifyCredentials
-}; 
+// Start server
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  logger.info(`Web server listening on port ${port}`);
+}); 

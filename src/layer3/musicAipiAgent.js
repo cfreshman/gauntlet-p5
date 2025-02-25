@@ -8,7 +8,6 @@
 import logger from '../utils/logger.js';
 import { OpenAI } from 'openai';
 import { z } from 'zod';
-import mcpClient from '../utils/mcp-client.js';
 import toolFormatter from '../utils/tool-formatter.js';
 
 // Initialize OpenAI client
@@ -19,22 +18,10 @@ const openai = new OpenAI({
 /**
  * Register the generic agent with the server
  * @param {object} server - The server instance to register tools with
- * @param {object} layer1Client - The Layer 1 client instance (may be null initially)
- * @param {object} layer2Client - The Layer 2 client instance (may be null initially)
+ * @param {object} clients - The clients object containing layer clients
  */
-function registerMusicAipiAgent(server, layer1Client, layer2Client) {
+function registerMusicAipiAgent(server, clients) {
   logger.info('Registering Generic AIPI Agent (Layer 3)...');
-
-  // Debug the initial client status
-  logger.info('Initial Layer 1 client status:', { 
-    available: !!layer1Client,
-    connected: layer1Client ? 'Yes (checking tools)' : 'No'
-  });
-  
-  logger.info('Initial Layer 2 client status:', { 
-    available: !!layer2Client,
-    connected: layer2Client ? 'Yes (checking tools)' : 'No'
-  });
 
   // Register the agent immediately
   server.tool(
@@ -47,8 +34,8 @@ function registerMusicAipiAgent(server, layer1Client, layer2Client) {
       conversationHistory: z.string().optional().describe('JSON string of conversation history from the front end')
     },
     async ({ query, context = '', responseFormat = 'detailed', conversationHistory = '' }) => {
-      // Check if MCP client is fully connected
-      if (!mcpClient.isFullyConnected()) {
+      // Check if clients are connected
+      if (!clients.layer1 || !clients.layer2) {
         return {
           content: [
             {
@@ -79,8 +66,8 @@ function registerMusicAipiAgent(server, layer1Client, layer2Client) {
           query, 
           context, 
           responseFormat, 
-          chatHistory: parsedHistory, 
-          mcpClient
+          chatHistory: parsedHistory,
+          clients
         });
       } catch (error) {
         logger.error('Error processing query', { error: error.message });
@@ -102,11 +89,9 @@ function registerMusicAipiAgent(server, layer1Client, layer2Client) {
 
 /**
  * Handle a user query using available tools
- * @param {object} params - Parameters for handling the query
- * @returns {Promise<object>} - The response
  */
 async function handleQuery(params) {
-  const { query, context = '', responseFormat = 'detailed', chatHistory = [], mcpClient } = params;
+  const { query, context = '', responseFormat = 'detailed', chatHistory = [], clients } = params;
   
   try {
     logger.info(`Processing user query: "${query}"`);
@@ -123,11 +108,11 @@ async function handleQuery(params) {
     };
     
     // Select the appropriate tool for the query
-    const { toolName, toolArgs } = await selectTool(query, mcpClient);
+    const { toolName, toolArgs } = await selectTool(query, clients);
     
     if (!toolName) {
       // If no tool was selected, handle as a general query
-      return await handleGeneralQuery(query, context, responseFormat, chatHistory, mcpClient);
+      return await handleGeneralQuery(query, context, responseFormat, chatHistory, clients);
     }
     
     // Log the selected tool
@@ -142,7 +127,7 @@ async function handleQuery(params) {
     });
     
     // Find the tool info to get the layer
-    const toolInfo = mcpClient.findTool(toolName);
+    const toolInfo = findTool(toolName, clients);
     if (!toolInfo) {
       logger.error(`Tool ${toolName} not found`);
       return {
@@ -158,7 +143,7 @@ async function handleQuery(params) {
     
     // Call the selected tool
     logger.info(`Calling tool ${toolName} from layer ${toolInfo.layer}`);
-    const toolResult = await mcpClient.callTool(toolName, toolArgs);
+    const toolResult = await callTool(toolName, toolArgs, clients);
     
     // Add tool result to call tree
     clientState.callTree.steps.push({
@@ -173,7 +158,7 @@ async function handleQuery(params) {
       toolName,
       toolResult,
       chatHistory,
-      mcpClient,
+      clients,
       responseFormat
     });
     
@@ -236,26 +221,79 @@ async function handleQuery(params) {
 }
 
 /**
- * Select the appropriate tool for a query
- * @param {string} query - The user query
- * @param {object} mcpClient - The MCP client
- * @returns {Promise<object>} - The selected tool and arguments
+ * Find a tool by name across all layer clients
  */
-async function selectTool(query, mcpClient) {
+function findTool(toolName, clients) {
+  // Check layer 1
+  const layer1Tools = clients.layer1.getTools();
+  const layer1Tool = layer1Tools.find(t => t.name === toolName);
+  if (layer1Tool) return { ...layer1Tool, layer: 1 };
+
+  // Check layer 2
+  const layer2Tools = clients.layer2.getTools();
+  const layer2Tool = layer2Tools.find(t => t.name === toolName);
+  if (layer2Tool) return { ...layer2Tool, layer: 2 };
+
+  return null;
+}
+
+/**
+ * Call a tool using the appropriate layer client
+ */
+async function callTool(toolName, args, clients) {
+  const tool = findTool(toolName, clients);
+  if (!tool) {
+    throw new Error(`Tool ${toolName} not found`);
+  }
+
+  const client = tool.layer === 1 ? clients.layer1 : clients.layer2;
+  return await client.callTool(toolName, args);
+}
+
+/**
+ * Get all available tools from layer clients
+ */
+function getAllTools(clients) {
+  return {
+    layer1: clients.layer1.getTools() || [],
+    layer2: clients.layer2.getTools() || []
+  };
+}
+
+/**
+ * Format tools for LLM consumption
+ */
+async function formatToolsForLLM(clients) {
+  const allTools = getAllTools(clients);
+  let formatted = "Available tools:\n\n";
+
+  // Format Layer 1 tools
+  if (allTools.layer1.length) {
+    formatted += "Layer 1 (Music Service Tools):\n";
+    allTools.layer1.forEach(tool => {
+      formatted += `- ${tool.name}: ${tool.description}\n`;
+    });
+    formatted += "\n";
+  }
+
+  // Format Layer 2 tools
+  if (allTools.layer2.length) {
+    formatted += "Layer 2 (Music Intelligence Tools):\n";
+    allTools.layer2.forEach(tool => {
+      formatted += `- ${tool.name}: ${tool.description}\n`;
+    });
+  }
+
+  return formatted;
+}
+
+/**
+ * Select the appropriate tool for a query
+ */
+async function selectTool(query, clients) {
   try {
-    // Fetch available tools from all layers
-    const allTools = mcpClient.getAllTools();
-    
-    // Count tools by layer for debugging
-    const layer1ToolCount = allTools.layer1 ? allTools.layer1.length : 0;
-    const layer2ToolCount = allTools.layer2 ? allTools.layer2.length : 0;
-    const layer3ToolCount = allTools.layer3 ? allTools.layer3.length : 0;
-    
-    // Log tool counts for debugging
-    logger.debug(`Available tools - Layer 1: ${layer1ToolCount}, Layer 2: ${layer2ToolCount}, Layer 3: ${layer3ToolCount}`);
-    
     // Format tools for LLM
-    const toolsFormatted = await mcpClient.formatAllToolsForLLM();
+    const toolsFormatted = await formatToolsForLLM(clients);
     
     // Create messages array for LLM
     const messages = [
@@ -315,7 +353,7 @@ User query: "${query}"`
     }
     
     // Find the tool in available tools
-    const toolInfo = mcpClient.findTool(toolName);
+    const toolInfo = findTool(toolName, clients);
     
     if (!toolInfo) {
       logger.warn(`Selected tool ${toolName} not found in available tools`);
@@ -335,11 +373,9 @@ User query: "${query}"`
 
 /**
  * Process the result of a tool call and generate a response
- * @param {object} params - Parameters for processing the tool result
- * @returns {Promise<object>} - The processed result
  */
 async function processToolResult(params) {
-  const { toolName, toolResult, chatHistory, mcpClient, responseFormat = 'detailed' } = params;
+  const { toolName, toolResult, chatHistory, clients, responseFormat = 'detailed' } = params;
   
   try {
     // Extract content from the tool result
@@ -361,16 +397,8 @@ async function processToolResult(params) {
       };
     });
     
-    // Get available tools
-    const allTools = await mcpClient.getAllTools();
-    const layer1Tools = allTools.filter(tool => tool.layer === 1);
-    const layer2Tools = allTools.filter(tool => tool.layer === 2);
-    
-    // Log tool counts for debugging
-    logger.debug(`Available tools - Layer 1: ${layer1Tools.length}, Layer 2: ${layer2Tools.length}, Layer 3: ${allTools.length - layer1Tools.length - layer2Tools.length}`);
-    
     // Format tools for LLM
-    const toolsFormatted = await mcpClient.formatAllToolsForLLM();
+    const toolsFormatted = await formatToolsForLLM(clients);
     
     // Determine the appropriate system message based on response format
     let systemContent;
@@ -447,14 +475,8 @@ ${content}`
 
 /**
  * Handle a general query without using specific tools
- * @param {string} query - The user query
- * @param {string} context - Additional context
- * @param {string} responseFormat - Format of the response
- * @param {array} conversationHistory - The conversation history from the front end
- * @param {object} mcpClient - The MCP client
- * @returns {Promise<object>} - The response
  */
-async function handleGeneralQuery(query, context, responseFormat, chatHistory, mcpClient) {
+async function handleGeneralQuery(query, context, responseFormat, chatHistory, clients) {
   try {
     logger.info(`Handling general query: "${query}"`);
     
@@ -466,19 +488,8 @@ async function handleGeneralQuery(query, context, responseFormat, chatHistory, m
       };
     });
     
-    // Get available tools
-    const allTools = mcpClient.getAllTools();
-    
-    // Count tools by layer for debugging
-    const layer1ToolCount = allTools.layer1 ? allTools.layer1.length : 0;
-    const layer2ToolCount = allTools.layer2 ? allTools.layer2.length : 0;
-    const layer3ToolCount = allTools.layer3 ? allTools.layer3.length : 0;
-    
-    // Log tool counts for debugging
-    logger.debug(`Available tools - Layer 1: ${layer1ToolCount}, Layer 2: ${layer2ToolCount}, Layer 3: ${layer3ToolCount}`);
-    
     // Format tools for LLM
-    const toolsFormatted = await mcpClient.formatAllToolsForLLM();
+    const toolsFormatted = await formatToolsForLLM(clients);
     
     // Construct system prompt based on response format
     let systemPrompt;

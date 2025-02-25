@@ -176,18 +176,18 @@ class SpotifyClient {
   }
 
   /**
-   * Store user tokens
-   * @param {string} userId - User ID
-   * @param {Object} tokens - User tokens
+   * Store tokens for a specific user
+   * @param {string} userId - The Spotify user ID
+   * @param {Object} tokens - The tokens to store
    */
   storeUserTokens(userId, tokens) {
     this.userTokens[userId] = tokens;
   }
 
   /**
-   * Get user tokens
-   * @param {string} userId - User ID
-   * @returns {Object|null} - User tokens or null if not found
+   * Get tokens for a specific user
+   * @param {string} userId - The Spotify user ID
+   * @returns {Object|null} The stored tokens or null if not found
    */
   getUserTokens(userId) {
     return this.userTokens[userId] || null;

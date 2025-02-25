@@ -7,99 +7,43 @@
 import '../utils/punycode-hook.js';
 import dotenv from 'dotenv';
 import logger from '../utils/logger.js';
-import { Layer1Server, Layer2Server, Layer3Server } from './index.js';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
+// Load environment variables first
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
-/**
- * Create and start an MCP server for a specific layer
- */
-async function startMcpServer(layerName, LayerServerClass, port, config = {}) {
-  // Create MCP server instance
-  const mcpServer = new LayerServerClass({
-    name: `aipi-${layerName}-server`,
-    version: '1.0.0',
-    port,
-    ...config
-  });
+// Import layers after environment is loaded
+import layer1 from './layer1.js';
+import layer2 from './layer2.js';
+import layer3 from './layer3.js';
 
-  // Start the server
-  await mcpServer.start();
-  logger.info(`${layerName} server started successfully`);
-
-  return mcpServer;
-}
-
-/**
- * Main function to run MCP layers
- */
-async function main() {
+async function startAllServers() {
   try {
-    // Check if a specific layer was requested
-    const requestedLayer = process.argv[2];
-    
-    if (requestedLayer) {
-      // Run only the requested layer
-      switch (requestedLayer) {
-        case 'layer1':
-          await startMcpServer('layer1', Layer1Server, 3001);
-          break;
-        case 'layer2':
-          await startMcpServer('layer2', Layer2Server, 3002);
-          break;
-        case 'layer3':
-          await startMcpServer('layer3', Layer3Server, 3003);
-          break;
-        default:
-          throw new Error(`Invalid layer: ${requestedLayer}`);
-      }
-      return;
-    }
-
-    // Otherwise run all layers
-    logger.info('Starting all MCP layers');
-
     // Start Layer 1
-    try {
-      const layer1Server = await startMcpServer('layer1', Layer1Server, 3001);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    } catch (error) {
-      logger.error('Failed to start Layer 1 server:', {
-        message: error.message || error.toString(),
-        stack: error.stack,
-        details: error
-      });
-      throw error;
-    }
+    logger.info('Starting Layer 1 server...');
+    await layer1.start();
+    logger.info('Layer 1 server started successfully');
+
+    // Wait a bit for Layer 1 to be fully ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Start Layer 2
-    try {
-      const layer2Server = await startMcpServer('layer2', Layer2Server, 3002);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    } catch (error) {
-      logger.error('Failed to start Layer 2 server:', {
-        message: error.message || error.toString(),
-        stack: error.stack,
-        details: error
-      });
-      throw error;
-    }
+    logger.info('Starting Layer 2 server...');
+    await layer2.start();
+    logger.info('Layer 2 server started successfully');
+
+    // Wait a bit for Layer 2 to be fully ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Start Layer 3
-    try {
-      const layer3Server = await startMcpServer('layer3', Layer3Server, 3003);
-    } catch (error) {
-      logger.error('Failed to start Layer 3 server:', {
-        message: error.message || error.toString(),
-        stack: error.stack,
-        details: error
-      });
-      throw error;
-    }
+    logger.info('Starting Layer 3 server...');
+    await layer3.start();
+    logger.info('Layer 3 server started successfully');
+
+    logger.info('All MCP servers started successfully');
 
     // Handle process termination
     process.on('SIGINT', () => {
@@ -107,27 +51,11 @@ async function main() {
       process.exit(0);
     });
 
-    logger.info('All MCP layers are running');
     logger.info('Press Ctrl+C to exit');
   } catch (error) {
-    logger.error('Error running MCP layers:', {
-      message: error.message || error.toString(),
-      stack: error.stack,
-      details: error
-    });
+    logger.error('Error starting MCP servers:', error);
     process.exit(1);
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main().catch(error => {
-    logger.error('Unhandled error in main:', {
-      message: error.message || error.toString(),
-      stack: error.stack,
-      details: error
-    });
-    process.exit(1);
-  });
-}
-
-export { main }; 
+startAllServers(); 

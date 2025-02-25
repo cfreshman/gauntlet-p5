@@ -44,16 +44,7 @@ const SpotifyAuthScreen = ({ onLoginSuccess }) => {
   
   // Function to handle login
   const handleLogin = () => {
-    // Get the current origin to determine if we're on the dev server or production
-    const currentOrigin = window.location.origin;
-    
-    // If we're on the dev server (port 3004), we need to use the backend server URL directly
-    if (currentOrigin.includes('3004')) {
-      window.location.href = 'http://localhost:3000/auth/spotify';
-    } else {
-      // Otherwise, use the relative path which will be correctly proxied
-      window.location.href = '/auth/spotify';
-    }
+    window.location.href = '/auth/spotify';
   };
   
   if (loading) {
