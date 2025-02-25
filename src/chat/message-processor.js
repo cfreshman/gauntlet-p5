@@ -59,24 +59,23 @@ async function processUserMessage(userInput, userId) {
     // Generate and store tool descriptions for debugging
     await generateToolDescriptions();
     
-    // Use the music-aipi-agent tool from Layer 3
-    const toolName = 'music-aipi-agent';
+    // Use echo from Demo Layer for testing
+    const toolName = 'echo';
     const toolArgs = { 
-      query: userInput,
-      // Pass the chat history to the agent
-      conversationHistory: JSON.stringify(chatHistory),
-      // Format response for web client
-      responseFormat: 'concise'
+      message: userInput
     };
     
     // Store the tool call for debugging
-    debugInfo.lastToolCall = `${toolName} from layer3 with args: ${JSON.stringify(toolArgs)}`;
+    debugInfo.lastToolCall = `${toolName} from demo layer with args: ${JSON.stringify(toolArgs)}`;
     
     console.log(`Calling tool: ${toolName} with args:`, toolArgs);
     
     try {
-      // Call the music-aipi-agent tool
-      const toolResult = await mcpClient.callTool(toolName, toolArgs);
+      // Call the echo tool
+      const toolResult = await mcpClient.callTool({
+        name: toolName,
+        arguments: toolArgs
+      });
       debugInfo.lastToolResult = toolResult;
       
       // Check if service is not ready

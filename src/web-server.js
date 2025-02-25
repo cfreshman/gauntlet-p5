@@ -36,21 +36,13 @@ app.use(session({
   }
 }));
 
-// Create layer client
+// Create MCP client
 const client = new AipiLayerClient({
   name: 'web-client',
   layerServers: {
-    layer1: {
-      port: 3001,
-      wsPort: 3011
-    },
-    layer2: {
-      port: 3002,
-      wsPort: 3012
-    },
-    layer3: {
-      port: 3003,
-      wsPort: 3013
+    demo: {
+      port: 3005,
+      wsPort: 3015
     }
   }
 });
@@ -98,7 +90,7 @@ app.get('/callback', async (req, res) => {
     // Exchange code for tokens
     const tokens = await spotifyClient.exchangeCodeForTokens(code);
     
-    // Make API request with the fresh access token
+    // Get user profile
     const response = await fetch('https://api.spotify.com/v1/me', {
       headers: {
         'Authorization': `Bearer ${tokens.accessToken}`
@@ -112,12 +104,15 @@ app.get('/callback', async (req, res) => {
     const userProfile = await response.json();
     const userId = userProfile.id;
     
-    // Store tokens in both session and Spotify client
+    // Store tokens in session
     req.session.spotifyTokens = tokens;
     req.session.spotifyUserId = userId;
+    
+    // Store tokens in Spotify client
     spotifyClient.storeUserTokens(userId, tokens);
     
-    res.redirect('/?auth=success');
+    // Send tokens to client
+    res.redirect(`/?auth=success&userId=${encodeURIComponent(userId)}&accessToken=${encodeURIComponent(tokens.accessToken)}&refreshToken=${encodeURIComponent(tokens.refreshToken)}&expirationTime=${encodeURIComponent(tokens.expirationTime)}`);
   } catch (error) {
     logger.error('Error in Spotify callback:', error);
     res.redirect('/?error=' + encodeURIComponent('Failed to authenticate with Spotify'));
@@ -142,27 +137,18 @@ app.get('/api/auth/logout', (req, res) => {
 // Spotify token endpoint for Web Playback SDK
 app.get('/api/spotify/token', async (req, res) => {
   try {
-    if (!req.session.spotifyUserId || !req.session.spotifyTokens) {
+    const auth = req.headers.authorization;
+    if (!auth) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const userId = req.session.spotifyUserId;
-    const tokens = req.session.spotifyTokens;
-
-    if (Date.now() >= tokens.expirationTime) {
-      const newTokens = await spotifyClient.refreshAccessToken(tokens.refreshToken);
-      
-      // Update tokens in both session and Spotify client
-      req.session.spotifyTokens = newTokens;
-      spotifyClient.storeUserTokens(userId, {
-        ...tokens,
-        accessToken: newTokens.accessToken,
-        expirationTime: newTokens.expirationTime
-      });
-      
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    if (Date.now() >= parseInt(expirationTime)) {
+      const newTokens = await spotifyClient.refreshAccessToken(refreshToken);
       res.json({ token: newTokens.accessToken });
     } else {
-      res.json({ token: tokens.accessToken });
+      res.json({ token: accessToken });
     }
   } catch (error) {
     logger.error('Error getting Spotify token:', error);
@@ -173,10 +159,20 @@ app.get('/api/spotify/token', async (req, res) => {
 // Playback endpoints
 app.get('/api/playback/state', async (req, res) => {
   try {
-    if (!req.session.spotifyUserId) {
+    const auth = req.headers.authorization;
+    if (!auth) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
-    const state = await spotifyClient.getPlaybackState(req.session.spotifyUserId);
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
+    const state = await spotifyClient.getPlaybackState(userId);
     res.json(state);
   } catch (error) {
     logger.error('Error getting playback state:', error);
@@ -186,10 +182,20 @@ app.get('/api/playback/state', async (req, res) => {
 
 app.get('/api/playback/devices', async (req, res) => {
   try {
-    if (!req.session.spotifyUserId) {
+    const auth = req.headers.authorization;
+    if (!auth) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
-    const devices = await spotifyClient.getAvailableDevices(req.session.spotifyUserId);
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
+    const devices = await spotifyClient.getAvailableDevices(userId);
     res.json(devices);
   } catch (error) {
     logger.error('Error getting devices:', error);
@@ -199,11 +205,21 @@ app.get('/api/playback/devices', async (req, res) => {
 
 app.post('/api/playback/play', async (req, res) => {
   try {
-    if (!req.session.spotifyUserId) {
+    const auth = req.headers.authorization;
+    if (!auth) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
     const { deviceId, contextUri, uris, offset, positionMs } = req.body;
-    await spotifyClient.startPlayback(deviceId, contextUri, uris, offset, positionMs, req.session.spotifyUserId);
+    await spotifyClient.startPlayback(deviceId, contextUri, uris, offset, positionMs, userId);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error starting playback:', error);
@@ -213,11 +229,21 @@ app.post('/api/playback/play', async (req, res) => {
 
 app.post('/api/playback/pause', async (req, res) => {
   try {
-    if (!req.session.spotifyUserId) {
+    const auth = req.headers.authorization;
+    if (!auth) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
     const { deviceId } = req.body;
-    await spotifyClient.pausePlayback(deviceId, req.session.spotifyUserId);
+    await spotifyClient.pausePlayback(deviceId, userId);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error pausing playback:', error);
@@ -227,11 +253,21 @@ app.post('/api/playback/pause', async (req, res) => {
 
 app.post('/api/playback/next', async (req, res) => {
   try {
-    if (!req.session.spotifyUserId) {
+    const auth = req.headers.authorization;
+    if (!auth) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
     const { deviceId } = req.body;
-    await spotifyClient.skipToNext(deviceId, req.session.spotifyUserId);
+    await spotifyClient.skipToNext(deviceId, userId);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error skipping to next:', error);
@@ -241,11 +277,21 @@ app.post('/api/playback/next', async (req, res) => {
 
 app.post('/api/playback/previous', async (req, res) => {
   try {
-    if (!req.session.spotifyUserId) {
+    const auth = req.headers.authorization;
+    if (!auth) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
     const { deviceId } = req.body;
-    await spotifyClient.skipToPrevious(deviceId, req.session.spotifyUserId);
+    await spotifyClient.skipToPrevious(deviceId, userId);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error skipping to previous:', error);
@@ -256,7 +302,8 @@ app.post('/api/playback/previous', async (req, res) => {
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
-    if (!req.session.spotifyUserId) {
+    const auth = req.headers.authorization;
+    if (!auth) {
       return res.status(401).json({
         content: [
           {
@@ -268,17 +315,25 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
+    // Extract tokens from auth header
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens in Spotify client
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
     const { query, context, responseFormat, conversationHistory } = req.body;
 
-    // Call the AIPI agent tool
-    const result = await client.callTool('music-aipi-agent', {
-      query,
-      context,
-      responseFormat,
-      conversationHistory,
-      userId: req.session.spotifyUserId
+    // Call the echo tool for testing
+    const result = await client.callTool({
+      name: 'echo',
+      arguments: {
+        message: query || ''
+      }
     });
-
     res.json(result);
   } catch (error) {
     logger.error('Error in chat endpoint:', error);

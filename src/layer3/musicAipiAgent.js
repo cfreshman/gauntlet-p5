@@ -34,6 +34,18 @@ function registerMusicAipiAgent(server, clients) {
       conversationHistory: z.string().optional().describe('JSON string of conversation history from the front end')
     },
     async ({ query, context = '', responseFormat = 'detailed', conversationHistory = '' }) => {
+      // Temporary simple response for debugging
+      return {
+        content: [
+          {
+            type: "text",
+            text: "hello! this is a simple test response."
+          }
+        ],
+        isError: false
+      };
+
+      /* Original code commented out for now
       // Check if clients are connected
       if (!clients.layer1 || !clients.layer2) {
         return {
@@ -81,6 +93,7 @@ function registerMusicAipiAgent(server, clients) {
           isError: true
         };
       }
+      */
     }
   );
 
@@ -241,13 +254,14 @@ function findTool(toolName, clients) {
  * Call a tool using the appropriate layer client
  */
 async function callTool(toolName, args, clients) {
-  const tool = findTool(toolName, clients);
-  if (!tool) {
-    throw new Error(`Tool ${toolName} not found`);
+  const client = clients[findTool(toolName, clients).layer];
+  if (!client) {
+    throw new Error(`No client found for tool ${toolName}`);
   }
-
-  const client = tool.layer === 1 ? clients.layer1 : clients.layer2;
-  return await client.callTool(toolName, args);
+  return await client.callTool({
+    name: toolName,
+    arguments: args
+  });
 }
 
 /**
@@ -326,7 +340,7 @@ User query: "${query}"`
     
     // Call LLM to select tool
     const llmResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4",
       messages,
       temperature: 0.2,
       max_tokens: 500,
@@ -443,7 +457,7 @@ ${content}`
     
     // Call LLM to generate response
     const llmResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4",
       messages: messages,
       temperature: 0.7,
       max_tokens: 1000
@@ -539,7 +553,7 @@ async function handleGeneralQuery(query, context, responseFormat, chatHistory, c
     
     // Call OpenAI API
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4",
       messages: messages,
       temperature: 0.7,
       max_tokens: 4000

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const STORAGE_KEY = 'music-aipi-chat-history';
+const AUTH_STORAGE_KEY = 'music-aipi-auth';
 
 const AppContext = createContext(null);
 
@@ -11,22 +12,40 @@ export const AppProvider = ({ children }) => {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userId, setUserId] = useState(null);
 
-  // Check auth status on mount
+  // Check auth on mount and URL params
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      try {
-        const response = await fetch('/api/auth/status', {
-          credentials: 'include'
-        });
-        const data = await response.json();
-        setIsAuthenticated(data.authenticated);
-      } catch (error) {
-        console.error('Error checking auth status:', error);
+    const checkAuth = () => {
+      const auth = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (auth) {
+        const { userId, accessToken, refreshToken, expirationTime } = JSON.parse(auth);
+        if (Date.now() < expirationTime) {
+          setIsAuthenticated(true);
+          setUserId(userId);
+          return;
+        }
+      }
+
+      // Check URL params for new auth
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('auth') === 'success') {
+        const newAuth = {
+          userId: params.get('userId'),
+          accessToken: params.get('accessToken'),
+          refreshToken: params.get('refreshToken'),
+          expirationTime: parseInt(params.get('expirationTime'))
+        };
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newAuth));
+        setIsAuthenticated(true);
+        setUserId(newAuth.userId);
+        
+        // Clean URL
+        window.history.replaceState({}, document.title, '/');
       }
     };
 
-    checkAuthStatus();
+    checkAuth();
   }, []);
 
   // Save messages to localStorage
@@ -42,12 +61,24 @@ export const AppProvider = ({ children }) => {
     setIsLoading(true);
     
     try {
+      const auth = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (!auth) {
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: "please log in with spotify first" 
+        }]);
+        return;
+      }
+
+      const { userId, accessToken, refreshToken, expirationTime } = JSON.parse(auth);
+      const authHeader = `Bearer ${userId}:${accessToken}:${refreshToken}:${expirationTime}`;
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': authHeader
         },
-        credentials: 'include',
         body: JSON.stringify({
           query: message,
           conversationHistory: JSON.stringify(messages),
@@ -79,13 +110,21 @@ export const AppProvider = ({ children }) => {
     setIsLoading(false);
   };
 
+  const logout = () => {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    setIsAuthenticated(false);
+    setUserId(null);
+  };
+
   const value = {
     messages,
     isLoading,
     isAuthenticated,
+    userId,
     setIsAuthenticated,
     sendMessage,
-    clearHistory
+    clearHistory,
+    logout
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -93,9 +93,14 @@ class AipiLayerClient {
     }
 
     try {
-      const tools = await client.listTools();
+      const response = await client.listTools();
+      const tools = response.tools || response;
+      if (!Array.isArray(tools)) {
+        logger.error(`Received invalid tools format from ${layerName}:`, response);
+        return;
+      }
       this.tools[layerName] = tools;
-      logger.info(`${this.name}: Refreshed tools for ${layerName}`);
+      logger.info(`${this.name}: Refreshed tools for ${layerName}, found ${tools.length} tools`);
     } catch (error) {
       logger.error(`${this.name}: Error refreshing tools for ${layerName}:`, error);
     }
@@ -107,8 +112,15 @@ class AipiLayerClient {
   async start() {
     // Connect to layer servers
     for (const [layerName, config] of Object.entries(this.layerServers)) {
-      await this.connectToLayer(layerName, config);
+      try {
+        await this.connectToLayer(layerName, config);
+      } catch (error) {
+        logger.error(`Failed to connect to ${layerName}:`, error);
+      }
     }
+    
+    // Log available tools after connecting
+    logger.info('Available tools after startup:', this.tools);
   }
 
   /**
@@ -124,6 +136,11 @@ class AipiLayerClient {
    */
   findTool(toolName) {
     for (const [layer, tools] of Object.entries(this.tools)) {
+      // Ensure tools is an array before using find
+      if (!Array.isArray(tools)) {
+        logger.warn(`Tools for ${layer} is not an array:`, tools);
+        continue;
+      }
       const tool = tools.find(t => t.name === toolName);
       if (tool) {
         return { ...tool, layer };
@@ -133,22 +150,38 @@ class AipiLayerClient {
   }
 
   /**
-   * Call a tool
-   * @param {string} toolName - Name of the tool to call
-   * @param {Object} args - Arguments for the tool
+   * Get the client for a specific tool
+   * @param {string} toolName - Name of the tool
+   * @returns {Client|null} - The client that has the tool, or null if not found
    */
-  async callTool(toolName, args) {
+  getClientForTool(toolName) {
     const tool = this.findTool(toolName);
     if (!tool) {
-      throw new Error(`Tool ${toolName} not found`);
+      logger.warn(`No tool found with name: ${toolName}`);
+      return null;
     }
+    return this.clients[tool.layer];
+  }
 
-    const client = this.clients[tool.layer];
+  /**
+   * Call a tool
+   * @param {Object} params - Parameters for the tool call
+   * @param {string} params.name - Name of the tool to call
+   * @param {Object} params.arguments - Arguments for the tool
+   */
+  async callTool(params) {
+    const { name: toolName } = params;
+    logger.info(`AipiLayerClient.callTool ${toolName}`, params.arguments);
+
+    const client = this.getClientForTool(toolName);
     if (!client) {
-      throw new Error(`No client for layer ${tool.layer}`);
+      throw new Error(`No client found for tool: ${toolName}`);
     }
 
-    return await client.callTool(toolName, args);
+    // Pass the entire object to the SDK's callTool
+    const result = await client.callTool(params);
+
+    return result;
   }
 
   /**

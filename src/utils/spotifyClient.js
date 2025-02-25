@@ -274,63 +274,46 @@ class SpotifyClient {
 
   /**
    * Make a request to the Spotify API
-   * @param {string} method - HTTP method (GET, POST, PUT, DELETE)
-   * @param {string} endpoint - API endpoint (without base URL)
-   * @param {Object} [params] - Query parameters
-   * @param {Object} [data] - Request body for POST/PUT requests
-   * @param {string} [userId] - User ID for user-specific tokens
-   * @returns {Promise<Object>} Response data
+   * @param {string} method - HTTP method
+   * @param {string} endpoint - API endpoint
+   * @param {Object} params - Query parameters
+   * @param {Object} data - Request body data
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<Object>} - API response
    */
   async makeRequest(method, endpoint, params = {}, data = null, userId = null) {
     try {
-      // Get access token - ALWAYS try to get user token first if userId is provided
-      const token = await this.getAccessToken(userId);
-
-      // Log the request details for debugging
-      logger.debug(`Making ${method} request to ${endpoint}`, { 
-        params: JSON.stringify(params),
-        hasData: data !== null,
-        userId: userId || 'none'
-      });
-
-      // Prepare URL with query parameters
-      const url = new URL(`${API_URL}${endpoint}`);
-      if (Object.keys(params).length > 0) {
-        Object.entries(params).forEach(([key, value]) => {
-          url.searchParams.append(key, value);
-        });
+      // Get access token
+      const accessToken = await this.getAccessToken(userId);
+      if (!accessToken) {
+        throw new Error('No access token available');
       }
 
-      // Make the request
-      const response = await fetch(url, {
+      // Build URL with query parameters
+      const url = new URL(`https://api.spotify.com/v1${endpoint}`);
+      Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+
+      // Make request
+      const response = await fetch(url.toString(), {
         method,
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
         ...(data && { body: JSON.stringify(data) })
       });
 
-      // Handle 204 No Content responses first
+      // Handle response
       if (response.status === 204) {
         return null;
       }
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Spotify API error (${response.status}): ${errorText}`);
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
       }
 
-      // Only try to parse JSON for non-204 successful responses
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        return await response.json();
-      }
-      
-      // For non-JSON responses, return null
-      return null;
+      return response.status === 204 ? null : await response.json();
     } catch (error) {
-      logger.error('Error making Spotify API request:', error.message);
       throw error;
     }
   }
@@ -405,15 +388,7 @@ class SpotifyClient {
    */
   async getCurrentlyPlaying(userId) {
     try {
-      console.log('[SpotifyClient] Getting currently playing track for user:', userId);
       const response = await this.makeRequest('GET', '/me/player/currently-playing', {}, null, userId);
-      console.log('[SpotifyClient] Currently playing response:', {
-        hasResponse: !!response,
-        isPlaying: response?.is_playing,
-        track: response?.item?.name,
-        progress: response?.progress_ms,
-        timestamp: response?.timestamp
-      });
       return response;
     } catch (error) {
       console.error('[SpotifyClient] Failed to get currently playing:', error.message);
@@ -428,15 +403,7 @@ class SpotifyClient {
    */
   async getPlaybackState(userId) {
     try {
-      console.log('[SpotifyClient] Getting playback state for user:', userId);
       const response = await this.makeRequest('GET', '/me/player', {}, null, userId);
-      console.log('[SpotifyClient] Playback state response:', {
-        hasResponse: !!response,
-        statusCode: response?.status,
-        isPlaying: response?.is_playing,
-        track: response?.item?.name,
-        device: response?.device?.name
-      });
       return response;
     } catch (error) {
       console.error('[SpotifyClient] Failed to get playback state:', error.message);
@@ -451,18 +418,7 @@ class SpotifyClient {
    */
   async getAvailableDevices(userId) {
     try {
-      console.log('[SpotifyClient] Getting available devices for user:', userId);
       const response = await this.makeRequest('GET', '/me/player/devices', {}, null, userId);
-      console.log('[SpotifyClient] Devices response:', {
-        hasResponse: !!response,
-        deviceCount: response?.devices?.length,
-        devices: response?.devices?.map(d => ({
-          id: d.id,
-          name: d.name,
-          type: d.type,
-          isActive: d.is_active
-        }))
-      });
       return response;
     } catch (error) {
       console.error('[SpotifyClient] Failed to get available devices:', error.message);

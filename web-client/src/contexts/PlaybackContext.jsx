@@ -1,18 +1,32 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { useApp } from './AppContext';
 
 const PlaybackContext = createContext(null);
 
 export const PlaybackProvider = ({ children }) => {
+  const { isAuthenticated } = useApp();
   const [playbackState, setPlaybackState] = useState(null);
   const [playbackDevices, setPlaybackDevices] = useState([]);
   const [playerExpanded, setPlayerExpanded] = useState(false);
   const pollingIntervalRef = useRef(null);
 
+  const getAuthHeader = useCallback(() => {
+    const auth = localStorage.getItem('music-aipi-auth');
+    if (!auth) return null;
+    const { userId, accessToken, refreshToken, expirationTime } = JSON.parse(auth);
+    return `Bearer ${userId}:${accessToken}:${refreshToken}:${expirationTime}`;
+  }, []);
+
   // Fetch playback state and devices
   const fetchPlaybackState = useCallback(async () => {
     try {
+      const authHeader = getAuthHeader();
+      if (!authHeader) return;
+
       const response = await fetch('/api/playback/state', {
-        credentials: 'include'
+        headers: {
+          Authorization: authHeader
+        }
       });
       const data = await response.json();
       if (!data.error) {
@@ -21,12 +35,17 @@ export const PlaybackProvider = ({ children }) => {
     } catch (error) {
       console.error('[PlaybackContext] Error fetching playback state:', error);
     }
-  }, []);
+  }, [getAuthHeader]);
 
   const fetchPlaybackDevices = useCallback(async () => {
     try {
+      const authHeader = getAuthHeader();
+      if (!authHeader) return;
+
       const response = await fetch('/api/playback/devices', {
-        credentials: 'include'
+        headers: {
+          Authorization: authHeader
+        }
       });
       const data = await response.json();
       if (!data.error) {
@@ -35,10 +54,18 @@ export const PlaybackProvider = ({ children }) => {
     } catch (error) {
       console.error('[PlaybackContext] Error fetching devices:', error);
     }
-  }, []);
+  }, [getAuthHeader]);
 
-  // Start polling on mount
+  // Start polling on mount and when auth changes
   useEffect(() => {
+    if (!isAuthenticated) {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      return;
+    }
+
     // Initial fetch
     fetchPlaybackState();
     fetchPlaybackDevices();
@@ -54,9 +81,12 @@ export const PlaybackProvider = ({ children }) => {
         clearInterval(pollingIntervalRef.current);
       }
     };
-  }, [fetchPlaybackState, fetchPlaybackDevices]);
+  }, [isAuthenticated, fetchPlaybackState, fetchPlaybackDevices]);
 
   const sendPlaybackCommand = useCallback(async (action, params = {}) => {
+    const authHeader = getAuthHeader();
+    if (!authHeader) return;
+
     // Convert camelCase to snake_case
     const normalizedParams = { ...params };
     if (params.positionMs !== undefined) {
@@ -94,9 +124,9 @@ export const PlaybackProvider = ({ children }) => {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': authHeader
         },
-        credentials: 'include',
         body: JSON.stringify({
           ...normalizedParams,
           deviceId: device_id
@@ -112,7 +142,7 @@ export const PlaybackProvider = ({ children }) => {
     } catch (error) {
       console.error('[PlaybackContext] Error sending playback command:', error);
     }
-  }, [playbackState, fetchPlaybackState]);
+  }, [playbackState, fetchPlaybackState, getAuthHeader]);
 
   const value = {
     playbackState,
