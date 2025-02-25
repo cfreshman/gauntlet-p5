@@ -22,7 +22,6 @@ body {
   color: var(--text-color);
   line-height: 1.6;
   font-size: 14px;
-  text-transform: lowercase;
 }
 
 a {
@@ -36,15 +35,13 @@ a:hover {
 
 button {
   font-family: 'Roboto Mono', monospace;
-  text-transform: lowercase;
 }
 
 input {
   font-family: 'Roboto Mono', monospace;
-  text-transform: lowercase;
 }
 
-/* Proper nouns exception */
+/* Proper nouns exception - no longer needed */
 .proper-noun {
-  text-transform: capitalize;
+  /* removed text-transform property */
 } 

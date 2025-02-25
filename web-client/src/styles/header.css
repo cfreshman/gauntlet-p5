@@ -15,6 +15,12 @@
   letter-spacing: -0.5px;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .connection-status {
   font-size: 12px;
   padding: 4px 8px;
@@ -28,4 +34,29 @@
 
 .connection-status.disconnected {
   color: var(--error-color);
+}
+
+.debug-toggle, .clear-history, .show-tools {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  background-color: var(--secondary-bg);
+  color: var(--text-color);
+  border: none;
+  cursor: pointer;
+}
+
+.debug-toggle.active {
+  background-color: var(--accent-color);
+  color: black;
+}
+
+.clear-history:hover {
+  background-color: var(--error-color);
+  color: black;
+}
+
+.show-tools:hover {
+  background-color: var(--accent-color);
+  color: black;
 } 

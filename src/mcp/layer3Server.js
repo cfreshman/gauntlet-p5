@@ -10,6 +10,7 @@ const OpenAI = require('openai');
 const logger = require('../utils/logger');
 const { MCPBoundaryError } = require('../utils/errors');
 const { registerMusicCurationTools } = require('../layer3/musicCurationTools');
+const { registerMusicAipiAgent } = require('../layer3/musicAipiAgent');
 
 // Initialize OpenAI API client
 const openai = new OpenAI({
@@ -23,7 +24,8 @@ try {
   SSEClientTransport = sseModule.SSEClientTransport;
   logger.debug('SSEClientTransport loaded successfully for Layer3Server');
 } catch (error) {
-  logger.warn('SSEClientTransport not available for Layer3Server:', error.message);
+  // Only log as debug since this is expected in some environments
+  logger.debug('SSEClientTransport not available for Layer3Server:', error.message);
 }
 
 // Try to load StdioClientTransport as fallback
@@ -33,7 +35,8 @@ try {
   StdioClientTransport = stdioModule.StdioClientTransport;
   logger.debug('StdioClientTransport loaded successfully for Layer3Server');
 } catch (error) {
-  logger.warn('StdioClientTransport not available for Layer3Server:', error.message);
+  // Only log as debug since this is expected in some environments
+  logger.debug('StdioClientTransport not available for Layer3Server:', error.message);
 }
 
 /**
@@ -53,30 +56,40 @@ class Layer3Server {
       version: options.version || '1.0.0'
     });
     
-    this.layer2Endpoint = options.layer2Endpoint;
-    this.layer1Endpoint = options.layer1Endpoint;
     this.layer2Client = null;
     this.layer1Client = null;
     
-    if (!this.layer2Endpoint) {
-      logger.warn('Layer 3 server initialized without Layer 2 endpoint');
-    } else {
-      logger.info(`Layer 3 server initialized with Layer 2 endpoint: ${this.layer2Endpoint}`);
-      this.initializeLayer2Client();
-    }
-    
-    if (this.layer1Endpoint) {
-      logger.info(`Layer 3 server initialized with Layer 1 endpoint: ${this.layer1Endpoint}`);
-      this.initializeLayer1Client();
-    }
-    
+    // Register default tools and prompts first, before any connections
     this.registerDefaultTools();
     this.registerDefaultPrompts();
     
-    // Register Layer 3 tools
-    registerMusicCurationTools(this.server, this.layer1Client, this.layer2Client);
+    // Initialize Layer 2 client if endpoint is provided
+    if (options.layer2Endpoint) {
+      this.layer2Endpoint = options.layer2Endpoint;
+      logger.info(`Layer 3 server initialized with Layer 2 endpoint: ${this.layer2Endpoint}`);
+      this.initializeLayer2Client();
+    } else {
+      logger.info('Layer 3 server initialized without Layer 2 endpoint');
+    }
+    
+    // Initialize Layer 1 client if endpoint is provided
+    if (options.layer1Endpoint) {
+      this.layer1Endpoint = options.layer1Endpoint;
+      logger.info(`Layer 3 server initialized with Layer 1 endpoint: ${this.layer1Endpoint}`);
+      this.initializeLayer1Client();
+    } else {
+      logger.info('Layer 3 server initialized without Layer 1 endpoint');
+    }
+    
+    // Register Layer 3 tools with null clients initially
+    // We'll update the clients later when they're initialized
+    registerMusicCurationTools(this.server, null, null);
+    registerMusicAipiAgent(this.server, null, null);
     
     logger.info(`Layer 3 MCP Server initialized`);
+    
+    // Set up client update mechanism
+    this.setupClientUpdateInterval();
   }
   
   /**
@@ -109,7 +122,7 @@ class Layer3Server {
       } else if (StdioClientTransport) {
         transport = new StdioClientTransport({
           command: 'node',
-          args: ['src/mcp/demo.js', '2'],
+          args: ['--no-deprecation', 'src/mcp/demo.js', '2'],
           cwd: process.cwd()
         });
       } else {
@@ -157,7 +170,7 @@ class Layer3Server {
       } else if (StdioClientTransport) {
         transport = new StdioClientTransport({
           command: 'node',
-          args: ['src/mcp/demo.js', '1'],
+          args: ['--no-deprecation', 'src/mcp/demo.js', '1'],
           cwd: process.cwd()
         });
       } else {
@@ -176,45 +189,41 @@ class Layer3Server {
   }
   
   /**
-   * Query available tools from Layer 2
-   * @returns {Promise<Array>} - List of available tools
-   * @private
+   * Query tools from Layer 2
+   * @returns {Promise<Array>} - Array of tools from Layer 2
    */
   async queryLayer2Tools() {
     if (!this.layer2Client) {
-      logger.warn('Cannot query Layer 2 tools: Layer 2 client not initialized');
+      logger.debug('Cannot query Layer 2 tools: Layer 2 client not initialized');
       return [];
     }
     
     try {
-      const tools = await this.layer2Client.listTools();
-      logger.info(`Layer 3 server found ${tools.tools.length} tools in Layer 2`);
-      this.layer2Tools = tools.tools;
-      return tools.tools;
+      const response = await this.layer2Client.listTools();
+      logger.info(`Layer 3 server found ${response.tools.length} tools in Layer 2`);
+      return response.tools;
     } catch (error) {
-      logger.error('Error querying Layer 2 tools:', error.message);
+      logger.error(`Error querying Layer 2 tools: ${error.message}`);
       return [];
     }
   }
   
   /**
-   * Query available tools from Layer 1
-   * @returns {Promise<Array>} - List of available tools
-   * @private
+   * Query tools from Layer 1
+   * @returns {Promise<Array>} - Array of tools from Layer 1
    */
   async queryLayer1Tools() {
     if (!this.layer1Client) {
-      logger.warn('Cannot query Layer 1 tools: Layer 1 client not initialized');
+      logger.debug('Cannot query Layer 1 tools: Layer 1 client not initialized');
       return [];
     }
     
     try {
-      const tools = await this.layer1Client.listTools();
-      logger.info(`Layer 3 server found ${tools.tools.length} tools in Layer 1`);
-      this.layer1Tools = tools.tools;
-      return tools.tools;
+      const response = await this.layer1Client.listTools();
+      logger.info(`Layer 3 server found ${response.tools.length} tools in Layer 1`);
+      return response.tools;
     } catch (error) {
-      logger.error('Error querying Layer 1 tools:', error.message);
+      logger.error(`Error querying Layer 1 tools: ${error.message}`);
       return [];
     }
   }
@@ -315,7 +324,7 @@ class Layer3Server {
           
           // Call OpenAI API
           const response = await openai.chat.completions.create({
-            model: "gpt-4",
+            model: "gpt-4o",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
@@ -368,7 +377,7 @@ class Layer3Server {
           
           // Call OpenAI API
           const response = await openai.chat.completions.create({
-            model: "gpt-4",
+            model: "gpt-4o",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
@@ -444,7 +453,7 @@ class Layer3Server {
           
           // Call OpenAI API
           const response = await openai.chat.completions.create({
-            model: "gpt-4",
+            model: "gpt-4o",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
@@ -526,7 +535,7 @@ class Layer3Server {
           } else {
             // If Layer 2 is not available, use our own LLM capabilities
             const response = await openai.chat.completions.create({
-              model: "gpt-4",
+              model: "gpt-4o",
               messages: [
                 { role: "system", content: "You are a helpful assistant that summarizes text." },
                 { role: "user", content: `Summarize the following text in 3-5 sentences:\n\n${text}` }
@@ -641,7 +650,7 @@ class Layer3Server {
     try {
       // Call OpenAI API to enhance the result
       const response = await openai.chat.completions.create({
-        model: "gpt-4",
+        model: "gpt-4o",
         messages: [
           { 
             role: "system", 
@@ -776,6 +785,41 @@ class Layer3Server {
    */
   getServer() {
     return this.server;
+  }
+  
+  /**
+   * Set up an interval to update the clients in the global scope once they're initialized
+   * @private
+   */
+  setupClientUpdateInterval() {
+    // Set up global variables to store the clients
+    global.layer3 = global.layer3 || {};
+    global.layer3.layer1Client = null;
+    global.layer3.layer2Client = null;
+    
+    // Check every second if the clients are initialized
+    const interval = setInterval(() => {
+      // Check if Layer 1 client is initialized
+      if (this.layer1Client && !global.layer3.layer1Client) {
+        logger.info('Layer 1 client initialized, updating global reference');
+        global.layer3.layer1Client = this.layer1Client;
+      }
+      
+      // Check if Layer 2 client is initialized
+      if (this.layer2Client && !global.layer3.layer2Client) {
+        logger.info('Layer 2 client initialized, updating global reference');
+        global.layer3.layer2Client = this.layer2Client;
+      }
+      
+      // Log client status
+      logger.debug('Client status update:', {
+        layer1ClientAvailable: !!global.layer3.layer1Client,
+        layer2ClientAvailable: !!global.layer3.layer2Client
+      });
+    }, 1000);
+    
+    // Prevent the interval from keeping the process alive
+    interval.unref();
   }
 }
 

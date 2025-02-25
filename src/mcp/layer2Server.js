@@ -26,7 +26,8 @@ try {
   SSEClientTransport = sseModule.SSEClientTransport;
   logger.debug('SSEClientTransport loaded successfully for Layer2Server');
 } catch (error) {
-  logger.warn('SSEClientTransport not available for Layer2Server:', error.message);
+  // Only log as debug since this is expected in some environments
+  logger.debug('SSEClientTransport not available for Layer2Server:', error.message);
 }
 
 // Try to load StdioClientTransport as fallback
@@ -36,7 +37,8 @@ try {
   StdioClientTransport = stdioModule.StdioClientTransport;
   logger.debug('StdioClientTransport loaded successfully for Layer2Server');
 } catch (error) {
-  logger.warn('StdioClientTransport not available for Layer2Server:', error.message);
+  // Only log as debug since this is expected in some environments
+  logger.debug('StdioClientTransport not available for Layer2Server:', error.message);
 }
 
 /**
@@ -55,15 +57,16 @@ class Layer2Server {
       version: options.version || '1.0.0'
     });
     
-    this.layer1Endpoint = options.layer1Endpoint;
-    this.layer1Client = null;
-    
-    if (!this.layer1Endpoint) {
-      logger.warn('Layer 2 server initialized without Layer 1 endpoint');
-    } else {
+    // Initialize Layer 1 client if endpoint is provided
+    if (options.layer1Endpoint) {
+      this.layer1Endpoint = options.layer1Endpoint;
       logger.info(`Layer 2 server initialized with Layer 1 endpoint: ${this.layer1Endpoint}`);
       this.initializeLayer1Client();
+    } else {
+      logger.info('Layer 2 server initialized without Layer 1 endpoint');
     }
+    
+    this.layer1Client = null;
     
     this.registerDefaultTools();
     this.registerDefaultResources();
@@ -108,7 +111,7 @@ class Layer2Server {
       } else if (StdioClientTransport) {
         transport = new StdioClientTransport({
           command: 'node',
-          args: ['src/mcp/demo.js', '1'],
+          args: ['--no-deprecation', 'src/mcp/demo.js', '1'],
           cwd: process.cwd()
         });
       } else {
@@ -127,23 +130,21 @@ class Layer2Server {
   }
   
   /**
-   * Query available tools from Layer 1
-   * @returns {Promise<Array>} - List of available tools
-   * @private
+   * Query tools from Layer 1
+   * @returns {Promise<Array>} - Array of tools from Layer 1
    */
   async queryLayer1Tools() {
     if (!this.layer1Client) {
-      logger.warn('Cannot query Layer 1 tools: Layer 1 client not initialized');
+      logger.debug('Cannot query Layer 1 tools: Layer 1 client not initialized');
       return [];
     }
     
     try {
-      const tools = await this.layer1Client.listTools();
-      logger.info(`Layer 2 server found ${tools.tools.length} tools in Layer 1`);
-      this.layer1Tools = tools.tools;
-      return tools.tools;
+      const response = await this.layer1Client.listTools();
+      logger.info(`Layer 2 server found ${response.tools.length} tools in Layer 1`);
+      return response.tools;
     } catch (error) {
-      logger.error('Error querying Layer 1 tools:', error.message);
+      logger.error(`Error querying Layer 1 tools: ${error.message}`);
       return [];
     }
   }

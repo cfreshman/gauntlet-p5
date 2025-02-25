@@ -111,7 +111,7 @@ The web client provides a modern, user-friendly interface for interacting with t
 - Responsive design for desktop and mobile
 - Modern, Spotify-inspired dark theme
 
-To access the web client, start the web server and navigate to `http://localhost:3001` in your browser.
+To access the web client, start the web server and navigate to `http://localhost:3004` in your browser.
 
 ## API Integration
 

@@ -1,6 +1,9 @@
 /**
  * Main entry point for the (AI)PI server system
  */
+// load punycode hook to intercept all punycode imports
+require('./utils/punycode-hook');
+
 require('dotenv').config({ path: __dirname + '/.env' });
 const express = require('express');
 const cors = require('cors');

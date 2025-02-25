@@ -5,6 +5,9 @@
  * It connects to each layer and demonstrates their capabilities.
  */
 
+// load punycode hook to intercept all punycode imports
+require('../utils/punycode-hook');
+
 require('dotenv').config({ path: __dirname + '/../.env' });
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const readline = require('readline');
@@ -17,8 +20,8 @@ const { Layer3Client } = require('./layer3Client');
 let openai;
 try {
   if (!process.env.OPENAI_API_KEY) {
-    console.warn('⚠️ OPENAI_API_KEY is not set in the environment variables.');
-    console.warn('LLM-based tool selection will not be available.');
+    console.log('OPENAI_API_KEY is not set in the environment variables.');
+    console.log('LLM-based tool selection will not be available.');
   } else {
     const OpenAI = require('openai');
     openai = new OpenAI({
@@ -27,8 +30,8 @@ try {
     console.log('OpenAI client initialized successfully');
   }
 } catch (error) {
-  console.warn('⚠️ Failed to initialize OpenAI client:', error.message);
-  console.warn('LLM-based tool selection will not be available.');
+  console.log('Failed to initialize OpenAI client:', error.message);
+  console.log('LLM-based tool selection will not be available.');
 }
 
 // Check if SSE client transport is available
@@ -38,8 +41,8 @@ try {
   SSEClientTransport = sseModule.SSEClientTransport;
   console.log('SSEClientTransport loaded successfully');
 } catch (error) {
-  console.warn('SSEClientTransport not available:', error.message);
-  console.warn('Will use StdioClientTransport as fallback');
+  console.log('SSEClientTransport not available:', error.message);
+  console.log('Will use StdioClientTransport as fallback');
 }
 
 // Try to load StdioClientTransport as fallback
@@ -49,7 +52,7 @@ try {
   StdioClientTransport = stdioModule.StdioClientTransport;
   console.log('StdioClientTransport loaded successfully');
 } catch (error) {
-  console.warn('StdioClientTransport not available:', error.message);
+  console.log('StdioClientTransport not available:', error.message);
 }
 
 // Port configuration
@@ -542,7 +545,7 @@ async function main() {
       await layer1Client.connect(transport);
       console.log('✅ Connected to Layer 1 MCP Server');
     } catch (error) {
-      console.warn(`⚠️ Failed to connect to Layer 1 MCP Server: ${error.message}`);
+      console.log(`Could not connect to Layer 1 MCP Server: ${error.message}`);
     }
     
     // Connect to Layer 2
@@ -564,7 +567,7 @@ async function main() {
       await layer2Client.connect(transport);
       console.log('✅ Connected to Layer 2 MCP Server');
     } catch (error) {
-      console.warn(`⚠️ Failed to connect to Layer 2 MCP Server: ${error.message}`);
+      console.log(`Could not connect to Layer 2 MCP Server: ${error.message}`);
     }
     
     // Connect to Layer 3
@@ -586,7 +589,7 @@ async function main() {
       await layer3Client.connect(transport);
       console.log('✅ Connected to Layer 3 MCP Server');
     } catch (error) {
-      console.warn(`⚠️ Failed to connect to Layer 3 MCP Server: ${error.message}`);
+      console.log(`Could not connect to Layer 3 MCP Server: ${error.message}`);
     }
     
     // Check if at least one client is connected
@@ -642,4 +645,116 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main }; 
+module.exports = { main };
+
+/**
+ * test spotify tools
+ * @param {client} client - the mcp client
+ * @returns {boolean} - whether the tests succeeded
+ */
+async function testSpotifyTools(client) {
+  console.log('\n--- testing spotify tools ---\n');
+  
+  try {
+    // test search-spotify
+    console.log('testing search-spotify...');
+    const searchResult = await client.callTool({
+      name: 'search-spotify',
+      arguments: {
+        query: 'radiohead',
+        types: ['artist'],
+        limit: 5
+      }
+    });
+    console.log('search result:', JSON.stringify(searchResult, null, 2));
+    
+    console.log('\nspotify tools tests completed successfully');
+    return true;
+  } catch (error) {
+    console.error('error testing spotify tools:', error);
+    return false;
+  }
+}
+
+/**
+ * test last.fm tools
+ * @param {client} client - the mcp client
+ * @returns {boolean} - whether the tests succeeded
+ */
+async function testLastFmTools(client) {
+  console.log('\n--- testing last.fm tools ---\n');
+  
+  try {
+    // test get-similar-tracks
+    console.log('testing get-similar-tracks...');
+    const similarTracksResult = await client.callTool({
+      name: 'get-similar-tracks',
+      arguments: {
+        track: 'creep',
+        artist: 'radiohead',
+        limit: 5
+      }
+    });
+    console.log('similar tracks result:', JSON.stringify(similarTracksResult, null, 2));
+    
+    // test get-similar-artists
+    console.log('\ntesting get-similar-artists...');
+    const similarArtistsResult = await client.callTool({
+      name: 'get-similar-artists',
+      arguments: {
+        artist: 'radiohead',
+        limit: 5
+      }
+    });
+    console.log('similar artists result:', JSON.stringify(similarArtistsResult, null, 2));
+    
+    // test get-artist-top-tracks
+    console.log('\ntesting get-artist-top-tracks...');
+    const topTracksResult = await client.callTool({
+      name: 'get-artist-top-tracks',
+      arguments: {
+        artist: 'radiohead',
+        limit: 5
+      }
+    });
+    console.log('top tracks result:', JSON.stringify(topTracksResult, null, 2));
+    
+    // test get-top-tracks-by-tag
+    console.log('\ntesting get-top-tracks-by-tag...');
+    const topTracksByTagResult = await client.callTool({
+      name: 'get-top-tracks-by-tag',
+      arguments: {
+        tag: 'rock',
+        limit: 5
+      }
+    });
+    console.log('top tracks by tag result:', JSON.stringify(topTracksByTagResult, null, 2));
+    
+    console.log('\nlast.fm tools tests completed successfully');
+    return true;
+  } catch (error) {
+    console.error('error testing last.fm tools:', error);
+    return false;
+  }
+}
+
+/**
+ * test layer 1 tools
+ * @param {client} client - the mcp client
+ * @returns {boolean} - whether the tests succeeded
+ */
+async function testLayer1(client) {
+  console.log('\n=== testing layer 1 (primitives) ===\n');
+  
+  let success = true;
+  
+  // test spotify tools
+  const spotifySuccess = await testSpotifyTools(client);
+  success = success && spotifySuccess;
+  
+  // test last.fm tools
+  const lastFmSuccess = await testLastFmTools(client);
+  success = success && lastFmSuccess;
+  
+  return success;
+} 

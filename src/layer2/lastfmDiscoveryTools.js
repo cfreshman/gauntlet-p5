@@ -7,6 +7,7 @@
 const logger = require('../utils/logger');
 const lastfmClient = require('../utils/lastfmClient');
 const spotifyClient = require('../utils/spotifyClient');
+const { z } = require('zod');
 
 /**
  * Register Last.fm music discovery tools with the server
@@ -16,89 +17,42 @@ function registerLastfmDiscoveryTools(server) {
   logger.info('Registering Last.fm Music Discovery Tools (Layer 2)...');
 
   // Register discover-similar-tracks tool
-  server.registerTool({
-    name: 'discover-similar-tracks',
-    description: 'Discovers tracks similar to a specified track using Last.fm',
-    parameters: {
-      type: 'object',
-      required: ['trackName', 'artistName'],
-      properties: {
-        trackName: {
-          type: 'string',
-          description: 'Name of the track to find similar tracks for'
-        },
-        artistName: {
-          type: 'string',
-          description: 'Name of the artist of the track'
-        },
-        limit: {
-          type: 'integer',
-          description: 'Number of similar tracks to return',
-          default: 20
-        },
-        findOnSpotify: {
-          type: 'boolean',
-          description: 'Whether to find the tracks on Spotify',
-          default: true
-        }
-      }
+  server.tool(
+    'discover-similar-tracks',
+    'Discovers tracks similar to a specified track using Last.fm',
+    {
+      trackName: z.string().describe('Name of the track to find similar tracks for'),
+      artistName: z.string().describe('Name of the artist of the track'),
+      limit: z.number().int().min(1).max(100).default(20).describe('Number of similar tracks to return'),
+      findOnSpotify: z.boolean().default(true).describe('Whether to find the tracks on Spotify')
     },
-    handler: discoverSimilarTracks
-  });
+    discoverSimilarTracks
+  );
 
   // Register discover-similar-artists tool
-  server.registerTool({
-    name: 'discover-similar-artists',
-    description: 'Discovers artists similar to a specified artist using Last.fm',
-    parameters: {
-      type: 'object',
-      required: ['artistName'],
-      properties: {
-        artistName: {
-          type: 'string',
-          description: 'Name of the artist to find similar artists for'
-        },
-        limit: {
-          type: 'integer',
-          description: 'Number of similar artists to return',
-          default: 20
-        },
-        includeTopTracks: {
-          type: 'boolean',
-          description: 'Whether to include top tracks for each artist',
-          default: false
-        }
-      }
+  server.tool(
+    'discover-similar-artists',
+    'Discovers artists similar to a specified artist using Last.fm',
+    {
+      artistName: z.string().describe('Name of the artist to find similar artists for'),
+      limit: z.number().int().min(1).max(100).default(20).describe('Number of similar artists to return'),
+      includeTopTracks: z.boolean().default(true).describe('Whether to include top tracks for each artist')
     },
-    handler: discoverSimilarArtists
-  });
+    discoverSimilarArtists
+  );
 
   // Register discover-by-tag tool
-  server.registerTool({
-    name: 'discover-by-tag',
-    description: 'Discovers top tracks for a specified tag/genre using Last.fm',
-    parameters: {
-      type: 'object',
-      required: ['tag'],
-      properties: {
-        tag: {
-          type: 'string',
-          description: 'Tag or genre to find top tracks for'
-        },
-        limit: {
-          type: 'integer',
-          description: 'Number of tracks to return',
-          default: 20
-        },
-        findOnSpotify: {
-          type: 'boolean',
-          description: 'Whether to find the tracks on Spotify',
-          default: true
-        }
-      }
+  server.tool(
+    'discover-by-tag',
+    'Discovers music by tag/genre using Last.fm',
+    {
+      tag: z.string().describe('Tag/genre to discover music by'),
+      type: z.enum(['tracks', 'artists', 'albums']).default('tracks').describe('Type of content to discover'),
+      limit: z.number().int().min(1).max(100).default(20).describe('Number of items to return'),
+      findOnSpotify: z.boolean().default(true).describe('Whether to find the items on Spotify (for tracks)')
     },
-    handler: discoverByTag
-  });
+    discoverByTag
+  );
 
   logger.info('Last.fm Music Discovery Tools registered successfully');
 }
@@ -159,11 +113,27 @@ async function discoverSimilarTracks(params) {
       insights
     };
     
-    return response;
+    // Return in MCP format
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(response, null, 2)
+        }
+      ]
+    };
     
   } catch (error) {
     logger.error(`Error discovering similar tracks: ${error.message}`);
-    throw new Error(`Failed to discover similar tracks: ${error.message}`);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error: ${error.message}`
+        }
+      ],
+      isError: true
+    };
   }
 }
 
@@ -207,7 +177,7 @@ async function discoverSimilarArtists(params) {
       // Include top tracks if requested
       if (includeTopTracks) {
         try {
-          const topTracksResponse = await lastfmClient.getArtistTopTracks(artist.name, 5);
+          const topTracksResponse = await lastfmClient.getArtistTopTracks(artist.name, 10);
           if (topTracksResponse.toptracks && topTracksResponse.toptracks.track) {
             artistData.topTracks = topTracksResponse.toptracks.track.map(track => ({
               name: track.name,
@@ -216,7 +186,7 @@ async function discoverSimilarArtists(params) {
             }));
           }
         } catch (error) {
-          logger.warn(`Could not get top tracks for ${artist.name}: ${error.message}`);
+          logger.debug(`Could not get top tracks for ${artist.name}: ${error.message}`);
           artistData.topTracks = [];
         }
       }
@@ -241,11 +211,27 @@ async function discoverSimilarArtists(params) {
       insights
     };
     
-    return response;
+    // Return in MCP format
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(response, null, 2)
+        }
+      ]
+    };
     
   } catch (error) {
     logger.error(`Error discovering similar artists: ${error.message}`);
-    throw new Error(`Failed to discover similar artists: ${error.message}`);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error: ${error.message}`
+        }
+      ],
+      isError: true
+    };
   }
 }
 
@@ -304,11 +290,27 @@ async function discoverByTag(params) {
       insights
     };
     
-    return response;
+    // Return in MCP format
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(response, null, 2)
+        }
+      ]
+    };
     
   } catch (error) {
     logger.error(`Error discovering tracks by tag: ${error.message}`);
-    throw new Error(`Failed to discover tracks by tag: ${error.message}`);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error: ${error.message}`
+        }
+      ],
+      isError: true
+    };
   }
 }
 
@@ -321,7 +323,7 @@ async function findTracksOnSpotify(tracks) {
   const tracksWithSpotify = await Promise.all(tracks.map(async (track) => {
     try {
       // Search for the track on Spotify
-      const query = `track:${track.name} artist:${track.artist}`;
+      const query = `${track.name} ${track.artist}`;
       const searchResults = await spotifyClient.search(query, ['track'], 1);
       
       if (searchResults.tracks && searchResults.tracks.items.length > 0) {
@@ -351,7 +353,7 @@ async function findTracksOnSpotify(tracks) {
         spotify: null
       };
     } catch (error) {
-      logger.warn(`Could not find "${track.name}" by "${track.artist}" on Spotify: ${error.message}`);
+      logger.debug(`Could not find "${track.name}" by "${track.artist}" on Spotify: ${error.message}`);
       
       // Return the original track if there's an error
       return {

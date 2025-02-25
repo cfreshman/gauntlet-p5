@@ -15,148 +15,63 @@ function registerPlaylistGenerationTools(server) {
   logger.info('Registering Playlist Generation Tools (Layer 2)...');
 
   // Register generate-playlist tool
-  server.registerTool({
-    name: 'generate-playlist',
-    description: 'Generates a playlist based on specified criteria',
-    parameters: {
-      type: 'object',
-      required: ['name', 'criteria'],
-      properties: {
-        name: {
-          type: 'string',
-          description: 'Name for the generated playlist'
-        },
-        description: {
-          type: 'string',
-          description: 'Description for the generated playlist'
-        },
-        criteria: {
-          type: 'object',
-          description: 'Criteria for selecting tracks',
-          properties: {
-            seed_artists: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Spotify IDs for seed artists'
-            },
-            seed_tracks: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Spotify IDs for seed tracks'
-            },
-            seed_genres: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Seed genres'
-            },
-            target_energy: {
-              type: 'number',
-              description: 'Target energy level (0.0 to 1.0)'
-            },
-            target_danceability: {
-              type: 'number',
-              description: 'Target danceability level (0.0 to 1.0)'
-            },
-            target_valence: {
-              type: 'number',
-              description: 'Target valence (positivity) level (0.0 to 1.0)'
-            },
-            target_tempo: {
-              type: 'number',
-              description: 'Target tempo in BPM'
-            },
-            target_acousticness: {
-              type: 'number',
-              description: 'Target acousticness level (0.0 to 1.0)'
-            },
-            target_instrumentalness: {
-              type: 'number',
-              description: 'Target instrumentalness level (0.0 to 1.0)'
-            },
-            min_popularity: {
-              type: 'number',
-              description: 'Minimum track popularity (0-100)'
-            }
-          }
-        },
-        userId: {
-          type: 'string',
-          description: 'Spotify user ID to create the playlist for'
-        },
-        trackCount: {
-          type: 'integer',
-          description: 'Number of tracks to include in the playlist',
-          default: 20
-        },
-        public: {
-          type: 'boolean',
-          description: 'Whether the playlist should be public',
-          default: true
-        }
+  server.tool(
+    'generate-playlist',
+    'Generates a playlist based on specified criteria',
+    {
+      name: {
+        type: 'string',
+        description: 'Name for the generated playlist'
+      },
+      description: {
+        type: 'string',
+        description: 'Description for the generated playlist'
+      },
+      criteria: {
+        type: 'object',
+        description: 'Criteria for selecting tracks'
+      },
+      trackCount: {
+        type: 'number',
+        description: 'Number of tracks to include in the playlist',
+        default: 20
+      },
+      public: {
+        type: 'boolean',
+        description: 'Whether the playlist should be public',
+        default: false
       }
     },
-    handler: generatePlaylist
-  });
+    generatePlaylist
+  );
 
   // Register enhance-playlist tool
-  server.registerTool({
-    name: 'enhance-playlist',
-    description: 'Enhances an existing playlist with additional tracks',
-    parameters: {
-      type: 'object',
-      required: ['playlistId'],
-      properties: {
-        playlistId: {
-          type: 'string',
-          description: 'Spotify ID of the playlist to enhance'
-        },
-        trackCount: {
-          type: 'integer',
-          description: 'Number of tracks to add to the playlist',
-          default: 10
-        },
-        maintainStyle: {
-          type: 'boolean',
-          description: 'Whether to maintain the musical style of the existing playlist',
-          default: true
-        },
-        diversify: {
-          type: 'boolean',
-          description: 'Whether to add diversity to the playlist',
-          default: false
-        },
-        criteria: {
-          type: 'object',
-          description: 'Additional criteria for selecting tracks (overrides analysis-based criteria)',
-          properties: {
-            seed_artists: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Spotify IDs for seed artists'
-            },
-            seed_genres: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Seed genres'
-            },
-            target_energy: {
-              type: 'number',
-              description: 'Target energy level (0.0 to 1.0)'
-            },
-            target_danceability: {
-              type: 'number',
-              description: 'Target danceability level (0.0 to 1.0)'
-            },
-            target_valence: {
-              type: 'number',
-              description: 'Target valence (positivity) level (0.0 to 1.0)'
-            }
-          }
-        }
+  server.tool(
+    'enhance-playlist',
+    'Enhances an existing playlist with additional tracks that fit the theme',
+    {
+      playlistId: {
+        type: 'string',
+        description: 'Spotify ID of the playlist to enhance'
+      },
+      trackCount: {
+        type: 'number',
+        description: 'Number of tracks to add',
+        default: 5
+      },
+      preserveOrder: {
+        type: 'boolean',
+        description: 'Whether to preserve the original order',
+        default: true
+      },
+      diversify: {
+        type: 'boolean',
+        description: 'Whether to diversify the recommendations',
+        default: false
       }
     },
-    handler: enhancePlaylist
-  });
+    enhancePlaylist
+  );
 
   logger.info('Playlist Generation Tools registered successfully');
 }
@@ -171,9 +86,8 @@ async function generatePlaylist(params) {
     name, 
     description = '', 
     criteria, 
-    userId, 
     trackCount = 20, 
-    public = true 
+    public = false 
   } = params;
   
   try {
@@ -192,7 +106,7 @@ async function generatePlaylist(params) {
     logger.info(`Found ${recommendations.tracks.length} tracks for playlist`);
     
     // Create a new playlist
-    const playlist = await spotifyClient.createPlaylist(userId, name, description, public);
+    const playlist = await spotifyClient.createPlaylist(name, description, public);
     
     // Add tracks to the playlist
     const trackUris = recommendations.tracks.map(track => track.uri);
@@ -234,10 +148,9 @@ async function generatePlaylist(params) {
 async function enhancePlaylist(params) {
   const { 
     playlistId, 
-    trackCount = 10, 
-    maintainStyle = true, 
-    diversify = false,
-    criteria = {} 
+    trackCount = 5, 
+    preserveOrder = true, 
+    diversify = false 
   } = params;
   
   try {
@@ -262,15 +175,23 @@ async function enhancePlaylist(params) {
     // Analyze the existing tracks to determine enhancement criteria
     let enhancementCriteria;
     
-    if (maintainStyle) {
+    if (preserveOrder) {
       // Analyze audio features of existing tracks to determine style
       enhancementCriteria = await analyzePlaylistStyle(existingTrackIds, diversify);
-      
-      // Merge with any provided criteria (provided criteria takes precedence)
-      enhancementCriteria = { ...enhancementCriteria, ...criteria };
     } else {
       // Use provided criteria directly
-      enhancementCriteria = criteria;
+      enhancementCriteria = {
+        seed_artists: existingTrackIds,
+        seed_tracks: existingTrackIds,
+        seed_genres: existingTrackIds,
+        target_energy: 0.5,
+        target_danceability: 0.5,
+        target_valence: 0.5,
+        target_tempo: 120,
+        target_acousticness: 0.5,
+        target_instrumentalness: 0.5,
+        min_popularity: 0
+      };
     }
     
     // Select seed tracks from the playlist

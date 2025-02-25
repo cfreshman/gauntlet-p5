@@ -4,6 +4,9 @@
  * This script demonstrates how to use the MCP servers
  * across the different layers of the (AI)PI system.
  */
+// load punycode hook to intercept all punycode imports
+require('../utils/punycode-hook');
+
 require('dotenv').config({ path: __dirname + '/../.env' });
 const { Layer1Server, Layer2Server, Layer3Server } = require('./index');
 const logger = require('../utils/logger');

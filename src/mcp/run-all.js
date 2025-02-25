@@ -5,6 +5,9 @@
  * It allows for testing the complete layered architecture in one command.
  */
 
+// load punycode hook to intercept all punycode imports
+require('../utils/punycode-hook');
+
 require('dotenv').config({ path: __dirname + '/../.env' });
 const { spawn } = require('child_process');
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
@@ -20,8 +23,8 @@ try {
   SSEServerTransport = sseModule.SSEServerTransport;
   logger.info('Express, CORS, and SSEServerTransport loaded successfully');
 } catch (error) {
-  logger.warn('Express, CORS, or SSEServerTransport not available:', error.message);
-  logger.warn('Will only run stdio servers');
+  logger.info('Express, CORS, or SSEServerTransport not available:', error.message);
+  logger.info('Will only run stdio servers');
 }
 
 // Port configuration
@@ -39,7 +42,7 @@ const ports = {
  */
 function startExpressServer(layerName, mcpServer, port) {
   if (!express || !cors || !SSEServerTransport) {
-    logger.warn(`Cannot start ${layerName} Express server: required dependencies not available`);
+    logger.info(`Cannot start ${layerName} Express server: required dependencies not available`);
     return;
   }
 
@@ -113,6 +116,9 @@ async function main() {
     const layer2Endpoint = `http://localhost:${ports.layer2}/mcp/events`;
     const layer3Endpoint = `http://localhost:${ports.layer3}/mcp/events`;
     
+    // Wait for Layer 1 to initialize
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
     // Initialize Layer 2 server with Layer 1 endpoint
     logger.info('Initializing Layer 2 MCP Server');
     const layer2Server = new Layer2Server({
@@ -120,6 +126,9 @@ async function main() {
       version: '1.0.0',
       layer1Endpoint
     });
+    
+    // Wait for Layer 2 to initialize
+    await new Promise(resolve => setTimeout(resolve, 1000));
     
     // Initialize Layer 3 server with Layer 2 and Layer 1 endpoints
     logger.info('Initializing Layer 3 MCP Server');
@@ -134,7 +143,15 @@ async function main() {
     if (express && cors && SSEServerTransport) {
       logger.info('Starting Express servers for MCP layers');
       startExpressServer('Layer 1', layer1Server.getServer(), ports.layer1);
+      
+      // Wait for Layer 1 Express server to start
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       startExpressServer('Layer 2', layer2Server.getServer(), ports.layer2);
+      
+      // Wait for Layer 2 Express server to start
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       startExpressServer('Layer 3', layer3Server.getServer(), ports.layer3);
     } else {
       logger.info('Skipping Express servers due to missing dependencies');
@@ -146,17 +163,23 @@ async function main() {
     const processes = [];
     
     try {
-      const layer1Process = spawn('node', ['src/mcp/demo.js', '1'], {
+      const layer1Process = spawn('node', ['--no-deprecation', 'src/mcp/demo.js', '1'], {
         stdio: 'inherit'
       });
       processes.push(layer1Process);
       
-      const layer2Process = spawn('node', ['src/mcp/demo.js', '2'], {
+      // Wait for Layer 1 stdio server to start
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const layer2Process = spawn('node', ['--no-deprecation', 'src/mcp/demo.js', '2'], {
         stdio: 'inherit'
       });
       processes.push(layer2Process);
       
-      const layer3Process = spawn('node', ['src/mcp/demo.js', '3'], {
+      // Wait for Layer 2 stdio server to start
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const layer3Process = spawn('node', ['--no-deprecation', 'src/mcp/demo.js', '3'], {
         stdio: 'inherit'
       });
       processes.push(layer3Process);

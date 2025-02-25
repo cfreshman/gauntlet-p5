@@ -15,55 +15,47 @@ function registerMusicAnalysisTools(server) {
   logger.info('Registering Music Analysis Tools (Layer 2)...');
 
   // Register analyze-track-features tool
-  server.registerTool({
-    name: 'analyze-track-features',
-    description: 'Analyzes audio features of a track and provides detailed insights',
-    parameters: {
-      type: 'object',
-      required: ['trackId'],
-      properties: {
-        trackId: {
-          type: 'string',
-          description: 'The Spotify ID of the track to analyze'
-        },
-        includeTrackDetails: {
-          type: 'boolean',
-          description: 'Whether to include basic track details in the response',
-          default: true
-        }
+  server.tool(
+    'analyze-track-features',
+    'Analyzes audio features of a track and provides detailed insights',
+    {
+      trackId: {
+        type: 'string',
+        description: 'The Spotify ID of the track to analyze'
+      },
+      includeTrackDetails: {
+        type: 'boolean',
+        description: 'Whether to include basic track details in the response',
+        default: true
       }
     },
-    handler: analyzeTrackFeatures
-  });
+    analyzeTrackFeatures
+  );
 
   // Register compare-tracks tool
-  server.registerTool({
-    name: 'compare-tracks',
-    description: 'Compares multiple tracks based on their audio features',
-    parameters: {
-      type: 'object',
-      required: ['trackIds'],
-      properties: {
-        trackIds: {
-          type: 'array',
-          items: {
-            type: 'string'
-          },
-          description: 'Array of Spotify track IDs to compare (2-5 tracks recommended)'
+  server.tool(
+    'compare-tracks',
+    'Compares multiple tracks based on their audio features',
+    {
+      trackIds: {
+        type: 'array',
+        items: {
+          type: 'string'
         },
-        aspects: {
-          type: 'array',
-          items: {
-            type: 'string',
-            enum: ['energy', 'danceability', 'valence', 'tempo', 'acousticness', 'instrumentalness', 'all']
-          },
-          description: 'Specific aspects to compare (defaults to all)',
-          default: ['all']
-        }
+        description: 'Array of Spotify track IDs to compare (2-5 tracks recommended)'
+      },
+      aspects: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: ['energy', 'danceability', 'valence', 'tempo', 'acousticness', 'instrumentalness', 'all']
+        },
+        description: 'Specific aspects to compare (defaults to all)',
+        default: ['all']
       }
     },
-    handler: compareTracks
-  });
+    compareTracks
+  );
 
   logger.info('Music Analysis Tools registered successfully');
 }

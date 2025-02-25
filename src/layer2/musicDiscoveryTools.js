@@ -6,6 +6,7 @@
 
 const logger = require('../utils/logger');
 const spotifyClient = require('../utils/spotifyClient');
+const { z } = require('zod');
 
 /**
  * Register music discovery tools with the server
@@ -15,90 +16,17 @@ function registerMusicDiscoveryTools(server) {
   logger.info('Registering Music Discovery Tools (Layer 2)...');
 
   // Register discover-similar-music tool
-  server.registerTool({
-    name: 'discover-similar-music',
-    description: 'Discovers music similar to provided tracks or artists',
-    parameters: {
-      type: 'object',
-      required: ['seedType', 'seeds'],
-      properties: {
-        seedType: {
-          type: 'string',
-          enum: ['tracks', 'artists', 'genres', 'mixed'],
-          description: 'Type of seeds to use for discovery'
-        },
-        seeds: {
-          type: 'array',
-          items: {
-            type: 'string'
-          },
-          description: 'Array of seed IDs (track IDs, artist IDs, or genre names)'
-        },
-        limit: {
-          type: 'integer',
-          description: 'Number of tracks to return',
-          default: 20
-        },
-        market: {
-          type: 'string',
-          description: 'Market code (e.g., "US")',
-          default: 'US'
-        },
-        tunableTrackAttributes: {
-          type: 'object',
-          description: 'Tunable track attributes to target',
-          properties: {
-            minEnergy: {
-              type: 'number',
-              description: 'Minimum energy (0.0 to 1.0)'
-            },
-            maxEnergy: {
-              type: 'number',
-              description: 'Maximum energy (0.0 to 1.0)'
-            },
-            minDanceability: {
-              type: 'number',
-              description: 'Minimum danceability (0.0 to 1.0)'
-            },
-            maxDanceability: {
-              type: 'number',
-              description: 'Maximum danceability (0.0 to 1.0)'
-            },
-            minValence: {
-              type: 'number',
-              description: 'Minimum valence (0.0 to 1.0)'
-            },
-            maxValence: {
-              type: 'number',
-              description: 'Maximum valence (0.0 to 1.0)'
-            },
-            minTempo: {
-              type: 'number',
-              description: 'Minimum tempo in BPM'
-            },
-            maxTempo: {
-              type: 'number',
-              description: 'Maximum tempo in BPM'
-            },
-            minPopularity: {
-              type: 'integer',
-              description: 'Minimum popularity (0 to 100)'
-            },
-            maxPopularity: {
-              type: 'integer',
-              description: 'Maximum popularity (0 to 100)'
-            }
-          }
-        },
-        includeAudioFeatures: {
-          type: 'boolean',
-          description: 'Whether to include audio features in the response',
-          default: false
-        }
-      }
+  server.tool(
+    'discover-similar-music',
+    'Discovers music similar to provided tracks or artists with explanations',
+    {
+      seedType: z.enum(['tracks', 'artists', 'genres', 'mixed']).describe('Type of seed ("tracks", "artists", "genres", or "mixed")'),
+      seeds: z.array(z.string()).min(1).max(5).describe('Spotify IDs or genre names'),
+      limit: z.number().int().min(1).max(50).default(10).describe('Number of recommendations to return'),
+      includeAudioFeatures: z.boolean().default(false).describe('Whether to include audio features')
     },
-    handler: discoverSimilarMusic
-  });
+    discoverSimilarMusic
+  );
 
   logger.info('Music Discovery Tools registered successfully');
 }
@@ -112,7 +40,7 @@ async function discoverSimilarMusic(params) {
   const { 
     seedType, 
     seeds, 
-    limit = 20, 
+    limit = 10, 
     market = 'US',
     tunableTrackAttributes = {},
     includeAudioFeatures = false
@@ -222,7 +150,7 @@ async function discoverSimilarMusic(params) {
         audioFeatures = await spotifyClient.getSeveralAudioFeatures(trackIds);
         logger.info('Retrieved audio features for similar tracks');
       } catch (error) {
-        logger.warn(`Could not retrieve audio features: ${error.message}`);
+        logger.debug(`Could not retrieve audio features: ${error.message}`);
       }
     }
     
@@ -241,11 +169,27 @@ async function discoverSimilarMusic(params) {
     // Add discovery insights
     response.insights = generateDiscoveryInsights(processedTracks, audioFeatures);
     
-    return response;
+    // Return in MCP format
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(response, null, 2)
+        }
+      ]
+    };
     
   } catch (error) {
     logger.error(`Error discovering similar music: ${error.message}`);
-    throw new Error(`Failed to discover similar music: ${error.message}`);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error: ${error.message}`
+        }
+      ],
+      isError: true
+    };
   }
 }
 

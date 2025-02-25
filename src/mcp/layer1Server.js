@@ -9,6 +9,7 @@ const { z } = require('zod');
 const logger = require('../utils/logger');
 const { MCPBoundaryError } = require('../utils/errors');
 const { registerSpotifyTools } = require('../layer1/spotifyTools');
+const { registerLastFmTools } = require('../layer1/lastFmTools');
 
 /**
  * Layer 1 MCP Server
@@ -27,6 +28,9 @@ class Layer1Server {
     
     // Register Spotify tools
     registerSpotifyTools(this.server);
+    
+    // Register Last.fm tools
+    registerLastFmTools(this.server);
     
     this.registerDefaultTools();
     this.registerDefaultResources();

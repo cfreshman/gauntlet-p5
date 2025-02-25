@@ -5,6 +5,9 @@
  * the Model Context Protocol across the different layers of the (AI)PI system.
  */
 
+// load punycode hook to intercept all punycode imports
+require('../utils/punycode-hook');
+
 // Re-export the SDK components we'll use
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');

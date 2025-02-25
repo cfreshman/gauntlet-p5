@@ -30,11 +30,14 @@ function registerSpotifyTools(server) {
       offset: z.number().min(0).optional(),
       market: z.string().optional()
     },
-    async ({ query, types, limit = 20, offset = 0, market = null }) => {
+    async ({ query, types, limit = 20, offset = 0, market = 'US' }) => {
       try {
         logger.debug('Searching Spotify', { query, types, limit, offset, market });
         
-        const results = await spotifyClient.search(query, types, limit, offset, market);
+        // Convert types to array if it's a string
+        const typesArray = typeof types === 'string' ? [types] : types;
+        
+        const results = await spotifyClient.search(query, typesArray, limit, offset, market);
         
         return {
           content: [
@@ -51,6 +54,80 @@ function registerSpotifyTools(server) {
             {
               type: "text",
               text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Convert Last.fm to Spotify tool
+  server.tool(
+    "convert-lastfm-to-spotify",
+    "Convert Last.fm links to Spotify links",
+    {
+      artistName: z.string().describe("The name of the artist"),
+      trackName: z.string().optional().describe("The name of the track (optional)")
+    },
+    async ({ artistName, trackName }) => {
+      try {
+        logger.info('Converting Last.fm to Spotify', { artistName, trackName });
+        
+        // Use search to find the artist/track
+        let searchQuery = artistName;
+        if (trackName) {
+          searchQuery = `${trackName} artist:${artistName}`;
+        }
+        
+        const types = trackName ? ['track'] : ['artist'];
+        const results = await spotifyClient.search(searchQuery, types, 1);
+        
+        // Extract the Spotify URL from the search result
+        let spotifyUrl = null;
+        let spotifyData = null;
+        
+        if (trackName && results.tracks && results.tracks.items && results.tracks.items.length > 0) {
+          spotifyUrl = results.tracks.items[0].external_urls.spotify;
+          spotifyData = results.tracks.items[0];
+        } else if (results.artists && results.artists.items && results.artists.items.length > 0) {
+          spotifyUrl = results.artists.items[0].external_urls.spotify;
+          spotifyData = results.artists.items[0];
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                lastfm: {
+                  artist: artistName,
+                  track: trackName || null
+                },
+                spotify: {
+                  url: spotifyUrl,
+                  data: spotifyData
+                }
+              }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error converting Last.fm to Spotify', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                lastfm: {
+                  artist: artistName,
+                  track: trackName || null
+                },
+                spotify: {
+                  url: null,
+                  error: error.message
+                }
+              }, null, 2)
             }
           ],
           isError: true

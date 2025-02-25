@@ -6,16 +6,42 @@ const ChatInterface = ({ messages, sendMessage, isLoading }) => {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
   
+  // Log when component mounts
+  useEffect(() => {
+    console.log('ChatInterface mounted');
+    return () => {
+      console.log('ChatInterface unmounted');
+    };
+  }, []);
+  
+  // Log when messages or loading state changes
+  useEffect(() => {
+    console.log('Messages updated:', messages);
+    console.log('Loading state:', isLoading);
+  }, [messages, isLoading]);
+  
   const handleSubmit = (e) => {
     e.preventDefault();
     if (input.trim() && !isLoading) {
+      console.log('Form submitted with input:', input);
       sendMessage(input);
       setInput('');
+    } else {
+      console.log('Form submission prevented - empty input or loading:', { 
+        inputEmpty: !input.trim(), 
+        isLoading 
+      });
     }
+  };
+  
+  const handleInputChange = (e) => {
+    setInput(e.target.value);
+    console.log('Input changed:', e.target.value);
   };
   
   // auto-scroll to bottom when messages change
   useEffect(() => {
+    console.log('Scrolling to bottom of messages');
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
   
@@ -53,7 +79,7 @@ const ChatInterface = ({ messages, sendMessage, isLoading }) => {
         <input
           type="text"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleInputChange}
           placeholder="type your message..."
           disabled={isLoading}
           className="message-input"
@@ -62,6 +88,7 @@ const ChatInterface = ({ messages, sendMessage, isLoading }) => {
           type="submit" 
           disabled={isLoading || !input.trim()} 
           className="send-button"
+          onClick={() => console.log('Send button clicked')}
         >
           send
         </button>

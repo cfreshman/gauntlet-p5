@@ -23,101 +23,93 @@ function registerMusicCurationTools(server, layer1Server, layer2Server) {
   logger.info('Registering Music Curation Tools (Layer 3)...');
 
   // Register curate-personalized-collection tool
-  server.registerTool({
-    name: 'curate-personalized-collection',
-    description: 'Creates a tailored music collection based on user preferences and context',
-    parameters: {
-      type: 'object',
-      required: ['userId', 'theme', 'preferences'],
-      properties: {
-        userId: {
-          type: 'string',
-          description: 'Spotify user ID to create the collection for'
-        },
-        theme: {
-          type: 'string',
-          description: 'Theme or purpose of the collection (e.g., "Workout Mix", "Study Session", "Road Trip")'
-        },
-        preferences: {
-          type: 'object',
-          description: 'User preferences for the collection',
-          properties: {
-            favoriteArtists: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Names of favorite artists'
-            },
-            favoriteGenres: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Names of favorite genres'
-            },
-            favoriteTracks: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Names of favorite tracks'
-            },
-            mood: {
-              type: 'string',
-              description: 'Desired mood for the collection'
-            },
-            energyLevel: {
-              type: 'string',
-              enum: ['low', 'medium', 'high'],
-              description: 'Desired energy level'
-            },
-            excludeExplicit: {
-              type: 'boolean',
-              description: 'Whether to exclude explicit content',
-              default: false
-            }
+  server.tool(
+    'curate-personalized-collection',
+    'Creates a tailored music collection based on user preferences and context',
+    {
+      userId: {
+        type: 'string',
+        description: 'Spotify user ID to create the collection for'
+      },
+      theme: {
+        type: 'string',
+        description: 'Theme or purpose of the collection (e.g., "Workout Mix", "Study Session", "Road Trip")'
+      },
+      preferences: {
+        type: 'object',
+        description: 'User preferences for the collection',
+        properties: {
+          favoriteArtists: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Names of favorite artists'
+          },
+          favoriteGenres: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Names of favorite genres'
+          },
+          favoriteDecades: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Preferred decades (e.g., "1980s", "1990s")'
+          },
+          moodPreferences: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Preferred moods (e.g., "energetic", "relaxed", "melancholic")'
+          },
+          avoidArtists: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Artists to avoid'
+          },
+          avoidGenres: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Genres to avoid'
           }
-        },
-        context: {
-          type: 'object',
-          description: 'Additional context for the collection',
-          properties: {
-            occasion: {
-              type: 'string',
-              description: 'Occasion for the collection (e.g., "Birthday Party", "Morning Routine")'
-            },
-            duration: {
-              type: 'integer',
-              description: 'Desired duration in minutes'
-            },
-            location: {
-              type: 'string',
-              description: 'Location where the collection will be played'
-            },
-            timeOfDay: {
-              type: 'string',
-              description: 'Time of day when the collection will be played'
-            },
-            season: {
-              type: 'string',
-              description: 'Season when the collection will be played'
-            }
-          }
-        },
-        collectionSize: {
-          type: 'integer',
-          description: 'Number of tracks to include in the collection',
-          default: 20
-        },
-        createPlaylist: {
-          type: 'boolean',
-          description: 'Whether to create a Spotify playlist with the collection',
-          default: true
-        },
-        includeAnalysis: {
-          type: 'boolean',
-          description: 'Whether to include detailed analysis of the collection',
-          default: true
         }
+      },
+      context: {
+        type: 'object',
+        description: 'Contextual information for the collection',
+        properties: {
+          timeOfDay: {
+            type: 'string',
+            description: 'Time of day (e.g., "morning", "evening")'
+          },
+          activity: {
+            type: 'string',
+            description: 'Activity context (e.g., "working", "relaxing", "exercising")'
+          },
+          location: {
+            type: 'string',
+            description: 'Location context (e.g., "home", "gym", "commuting")'
+          },
+          weather: {
+            type: 'string',
+            description: 'Weather context (e.g., "sunny", "rainy", "snowy")'
+          },
+          season: {
+            type: 'string',
+            description: 'Season context (e.g., "summer", "winter")'
+          }
+        }
+      },
+      size: {
+        type: 'integer',
+        description: 'Number of tracks in the collection',
+        default: 25
+      },
+      createPlaylist: {
+        type: 'boolean',
+        description: 'Whether to create a Spotify playlist with the collection',
+        default: true
       }
     },
-    handler: curatePersonalizedCollection
-  });
+    curatePersonalizedCollection
+  );
 
   logger.info('Music Curation Tools registered successfully');
 }
@@ -227,16 +219,16 @@ async function generateCurationStrategy(theme, preferences, context) {
       User preferences:
       - Favorite artists: ${preferences.favoriteArtists ? preferences.favoriteArtists.join(', ') : 'Not specified'}
       - Favorite genres: ${preferences.favoriteGenres ? preferences.favoriteGenres.join(', ') : 'Not specified'}
-      - Favorite tracks: ${preferences.favoriteTracks ? preferences.favoriteTracks.join(', ') : 'Not specified'}
-      - Mood: ${preferences.mood || 'Not specified'}
-      - Energy level: ${preferences.energyLevel || 'Not specified'}
-      - Exclude explicit content: ${preferences.excludeExplicit ? 'Yes' : 'No'}
+      - Favorite decades: ${preferences.favoriteDecades ? preferences.favoriteDecades.join(', ') : 'Not specified'}
+      - Mood preferences: ${preferences.moodPreferences ? preferences.moodPreferences.join(', ') : 'Not specified'}
+      - Avoid artists: ${preferences.avoidArtists ? preferences.avoidArtists.join(', ') : 'Not specified'}
+      - Avoid genres: ${preferences.avoidGenres ? preferences.avoidGenres.join(', ') : 'Not specified'}
       
       Context:
-      - Occasion: ${context.occasion || 'Not specified'}
-      - Duration: ${context.duration ? `${context.duration} minutes` : 'Not specified'}
-      - Location: ${context.location || 'Not specified'}
       - Time of day: ${context.timeOfDay || 'Not specified'}
+      - Activity: ${context.activity || 'Not specified'}
+      - Location: ${context.location || 'Not specified'}
+      - Weather: ${context.weather || 'Not specified'}
       - Season: ${context.season || 'Not specified'}
       
       Create a detailed strategy that includes:
@@ -339,7 +331,7 @@ async function generateCurationStrategy(theme, preferences, context) {
           recommendedArtistTypes: ['Mellower artists', 'Acoustic performers']
         }
       ],
-      overallMood: preferences.mood || 'Balanced and engaging',
+      overallMood: preferences.moodPreferences ? preferences.moodPreferences.join(', ') : 'Balanced and engaging',
       specialConsiderations: [
         'Include a mix of familiar and discovery tracks',
         'Ensure smooth transitions between energy levels'
@@ -371,11 +363,11 @@ async function findSeedsFromPreferences(preferences) {
     }
     
     // Search for tracks based on favorite tracks
-    if (preferences.favoriteTracks && preferences.favoriteTracks.length > 0) {
-      for (const trackName of preferences.favoriteTracks.slice(0, 3)) {
-        const results = await spotifyClient.search(trackName, ['track'], 1);
+    if (preferences.favoriteDecades && preferences.favoriteDecades.length > 0) {
+      for (const decade of preferences.favoriteDecades.slice(0, 2)) {
+        const results = await spotifyClient.search(`year:${decade}`, ['track'], 2);
         if (results.tracks && results.tracks.items.length > 0) {
-          seeds.tracks.push(results.tracks.items[0]);
+          seeds.tracks.push(...results.tracks.items);
         }
       }
     }
@@ -670,13 +662,13 @@ async function analyzeCollection(tracks, theme, preferences, context) {
       User preferences:
       - Favorite artists: ${preferences.favoriteArtists ? preferences.favoriteArtists.join(', ') : 'Not specified'}
       - Favorite genres: ${preferences.favoriteGenres ? preferences.favoriteGenres.join(', ') : 'Not specified'}
-      - Mood: ${preferences.mood || 'Not specified'}
-      - Energy level: ${preferences.energyLevel || 'Not specified'}
+      - Mood preferences: ${preferences.moodPreferences ? preferences.moodPreferences.join(', ') : 'Not specified'}
       
       Context:
-      - Occasion: ${context.occasion || 'Not specified'}
-      - Location: ${context.location || 'Not specified'}
       - Time of day: ${context.timeOfDay || 'Not specified'}
+      - Activity: ${context.activity || 'Not specified'}
+      - Location: ${context.location || 'Not specified'}
+      - Weather: ${context.weather || 'Not specified'}
       - Season: ${context.season || 'Not specified'}
       
       Provide a detailed analysis of this collection, including:
@@ -736,9 +728,9 @@ async function analyzeCollection(tracks, theme, preferences, context) {
         themeAlignment: "The collection aims to capture the essence of the theme through a variety of tracks.",
         preferenceAlignment: "The collection incorporates the user's preferences where possible.",
         listeningContexts: [
-          context.occasion || "General listening",
+          context.timeOfDay || "General listening",
           context.location || "Any location",
-          context.timeOfDay || "Any time of day"
+          context.activity || "Any activity"
         ],
         musicalJourney: "The collection offers a journey through different energy levels and moods.",
         standoutCharacteristics: [
