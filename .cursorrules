@@ -18,7 +18,7 @@ buttons should have rounded ends, short vertical height compared to width
 
 - we're using Phosphor Icons in the web client. before you do - design guidelines - inline icons should be sized to the text size. but larger areas of the UI can contain larger icons
 
-- use gpt-4o for all LLM calls
+- use "gpt-4o" for all LLM calls. NOT gpt-4
 
 
 

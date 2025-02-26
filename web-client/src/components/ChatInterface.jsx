@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PaperPlaneTilt } from 'phosphor-react';
+import ReactMarkdown from 'react-markdown';
 import { useApp } from '../contexts/AppContext';
 import { usePlayback } from '../contexts/PlaybackContext';
 import '../styles/chat-interface.css';
@@ -68,7 +69,9 @@ const ChatInterface = () => {
         ) : (
           messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
-              <p>{getMessageContent(msg)}</p>
+              <div className="message-content">
+                <ReactMarkdown>{getMessageContent(msg)}</ReactMarkdown>
+              </div>
             </div>
           ))
         )}

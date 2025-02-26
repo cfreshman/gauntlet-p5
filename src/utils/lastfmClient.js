@@ -54,13 +54,19 @@ class LastfmClient {
       });
 
       // Make the request
-      const response = await fetch(API_URL, {
+      const queryString = new URLSearchParams(requestParams).toString();
+      const url = `${API_URL}?${queryString}`;
+
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'User-Agent': 'Spotify-AIPI-Tools/1.0.0'
-        },
-        params: requestParams
+        }
       });
+
+      if (!response.ok) {
+        throw new Error(`Last.fm API error (${response.status}): ${await response.text()}`);
+      }
 
       const data = await response.json();
 
