@@ -8,6 +8,7 @@
   margin: 0 auto;
   padding: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .messages-container {
@@ -20,6 +21,7 @@
   flex-grow: 1;
   scrollbar-width: none;  /* Firefox */
   -ms-overflow-style: none;  /* IE and Edge */
+  padding-bottom: calc(var(--space-sm) + 50px);
 }
 
 .messages-container::-webkit-scrollbar {
@@ -94,53 +96,64 @@
 }
 
 .input-container {
+  position: absolute;
+  bottom: var(--space-sm);
+  left: var(--space-sm);
+  right: var(--space-sm);
   display: flex;
   gap: var(--space-sm);
-  padding: var(--space-md);
-  align-items: flex-end;
-  border-top: 1px solid var(--border-color);
+  padding: var(--space-xs) var(--space-sm);
+  align-items: center;
+  border: 1px solid var(--border-color);
+  background: var(--border-color);
+  border-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-sm);
+  backdrop-filter: blur(10px);
 }
 
 .message-input {
   flex: 1;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: none;
+  padding: 0;
   color: var(--text-color);
   font-family: 'Roboto Mono', monospace;
   font-size: 13px;
   resize: none;
-  min-height: 44px;
+  min-height: 32px;
   max-height: 200px;
   line-height: 1.5;
-  transition: border-color 0.2s ease;
 }
 
 .message-input:focus {
   outline: none;
-  border-color: var(--accent-color);
+}
+
+.message-input::placeholder {
+  color: var(--text-color);
+  opacity: 0.5;
+  font-style: italic;
 }
 
 .message-input.loading {
-  border-color: var(--border-color);
   color: var(--disabled-color);
 }
 
 .message-input.loading::placeholder {
-  color: var(--disabled-color);
+  color: var(--text-color);
+  opacity: 0.5;
   font-style: italic;
 }
 
 .send-button {
-  background: transparent;
+  background: none;
   border: none;
   color: var(--text-color);
   padding: var(--space-sm);
   cursor: pointer;
-  border-radius: var(--radius-full);
-  width: 44px;
-  height: 44px;
+  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -149,21 +162,18 @@
 }
 
 .send-button:disabled {
-  color: var(--disabled-color);
+  opacity: 0.3;
   cursor: not-allowed;
-  opacity: 0.5;
 }
 
 .send-button.loading {
-  color: var(--disabled-color);
+  opacity: 0.3;
   cursor: not-allowed;
-  opacity: 0.5;
   pointer-events: none;
 }
 
 .send-button:not(:disabled):hover {
-  color: var(--accent-color);
-  background: rgba(255, 102, 51, 0.1);
+  background: rgba(0, 0, 0, 0.1);
 }
 
 /* Markdown styling */
@@ -214,4 +224,10 @@
 .thinking-pulse {
   font-style: italic;
   animation: thinking-pulse 2s ease-in-out infinite;
+}
+
+@media (max-width: 768px) {
+  .message-input {
+    font-size: 16px;
+  }
 } 

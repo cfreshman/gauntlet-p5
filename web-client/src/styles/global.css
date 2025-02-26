@@ -68,7 +68,7 @@ input, textarea {
   border: 1px solid var(--border-color);
   color: var(--text-color);
   padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-full);
+  /* border-radius: var(--radius-full); */
   font-size: 13px;
   width: 100%;
   resize: none;
