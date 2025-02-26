@@ -157,20 +157,13 @@ const PlaybackControls = () => {
             </button>
           </div>
           <div className="expand-toggle">
-            <CaretUp size={14} weight="fill" />
+            <CaretDown size={14} weight="fill" />
           </div>
         </div>
       )}
       
       {expanded && (
         <div className="playback-details">
-          <div className="expanded-header" onClick={toggleExpanded}>
-            <div className="header-spacer"></div>
-            <div className="collapse-indicator">
-              <CaretDown size={14} weight="fill" />
-            </div>
-          </div>
-          
           <div className="expanded-content">
             <div className="track-main-info">
               {item.album.images && item.album.images.length > 0 && (
@@ -288,6 +281,12 @@ const PlaybackControls = () => {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+
+          <div className="expanded-header" onClick={toggleExpanded}>
+            <div className="collapse-indicator">
+              <CaretUp size={14} weight="fill" />
             </div>
           </div>
         </div>

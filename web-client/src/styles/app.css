@@ -30,7 +30,8 @@
 }
 
 .main-content {
-  flex: 1;
+  height: 0;
+  flex-grow: 1;
   position: relative;
   z-index: 2;
   width: 100%;
@@ -39,10 +40,19 @@
   display: flex;
   flex-direction: column;
   background: var(--primary-bg);
-  min-height: 0;
+  height: 100vh;
   overflow: hidden;
   border-left: 1px solid var(--border-color);
   border-right: 1px solid var(--border-color);
+}
+
+.chat-container {
+  height: 0;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .messages-container {
@@ -85,7 +95,6 @@
 
 .header {
   position: relative;
-  z-index: 2;
-  border-left: 1px solid var(--border-color);
-  border-right: 1px solid var(--border-color);
-} 
+  z-index: 3;
+  flex-shrink: 0;
+}

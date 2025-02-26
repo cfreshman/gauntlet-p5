@@ -1,16 +1,12 @@
 .playback-controls {
   width: 100%;
-  background-color: var(--secondary-bg);
-  border-radius: 8px 8px 0 0;
+  background: var(--primary-bg);
   font-family: 'Roboto Mono', monospace;
   font-size: 12px;
   overflow: hidden;
   transition: all 0.3s ease;
-  border: 1px solid var(--border-color);
-  border-bottom: none;
-  z-index: 100;
-  max-width: 800px;
-  margin: 0 auto;
+  border-bottom: 1px solid var(--border-color);
+  z-index: 2;
 }
 
 .playback-controls.collapsed {
@@ -18,7 +14,8 @@
 }
 
 .playback-controls.expanded {
-  height: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .playback-controls.loading,
@@ -35,8 +32,8 @@
   align-items: center;
   padding: 8px;
   cursor: pointer;
+  height: 60px;
   border-bottom: 1px solid var(--border-color);
-  height: 100%;
 }
 
 .playback-controls.collapsed .playback-header {
@@ -91,13 +88,12 @@
 
 /* Expanded view styles */
 .expanded-header {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 10px;
-  border-bottom: 1px solid var(--border-color);
-  cursor: pointer;
   height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-top: 1px solid var(--border-color);
 }
 
 .expanded-header:hover {
@@ -113,13 +109,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
 }
 
 .expanded-content {
+  flex: 1;
   padding: 15px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  overflow-y: auto;
 }
 
 .track-main-info {

@@ -16,11 +16,13 @@ const AppContent = () => {
 
   return (
     <div className="app">
-      <Header />
-      <main className="main-content">
-        <ChatInterface />
-      </main>
-      <PlaybackControls />
+      <div className="main-content">
+        <Header />
+        <PlaybackControls />
+        <div className="chat-container">
+          <ChatInterface />
+        </div>
+      </div>
     </div>
   );
 };

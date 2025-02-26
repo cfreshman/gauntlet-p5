@@ -166,10 +166,6 @@
   background: rgba(255, 102, 51, 0.1);
 }
 
-.chat-interface.input-hidden .input-container {
-  display: none;
-}
-
 /* Markdown styling */
 .message-content {
   font-size: 13px;
