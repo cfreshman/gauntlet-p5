@@ -26,9 +26,10 @@
     "web:serve": "cd web-client && npm run serve",
     "web:install": "cd web-client && npm install",
     "web:server": "node --no-deprecation src/web-server.js",
-    "web:with-mcp": "node --no-deprecation -e \"require('child_process').spawn('node', ['--no-deprecation', 'src/mcp/run-all.js'], {stdio: 'inherit'}); setTimeout(() => require('child_process').spawn('node', ['--no-deprecation', 'src/web-server.js'], {stdio: 'inherit'}), 5000);\"",
+    "web:with-mcp": "node --no-deprecation -e \"require('child_process').spawn('node', ['--no-deprecation', 'src/thinking-server.js'], {stdio: 'inherit'}); setTimeout(() => require('child_process').spawn('node', ['--no-deprecation', 'src/mcp/run-all.js'], {stdio: 'inherit'}), 2000); setTimeout(() => require('child_process').spawn('node', ['--no-deprecation', 'src/web-server.js'], {stdio: 'inherit'}), 7000);\"",
     "demo:server": "node --no-deprecation src/demo/simple-server.js",
-    "demo:client": "node --no-deprecation src/demo/simple-client.js"
+    "demo:client": "node --no-deprecation src/demo/simple-client.js",
+    "thinking:server": "node --no-deprecation src/thinking-server.js"
   },
   "keywords": [
     "AI",

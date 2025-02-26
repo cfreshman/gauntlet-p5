@@ -207,4 +207,15 @@
 
 .message-content p:last-child {
   margin-bottom: 0;
+}
+
+@keyframes thinking-pulse {
+  0% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+  100% { opacity: 0.4; }
+}
+
+.thinking-pulse {
+  font-style: italic;
+  animation: thinking-pulse 2s ease-in-out infinite;
 } 

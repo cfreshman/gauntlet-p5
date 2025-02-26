@@ -78,14 +78,14 @@ const ChatInterface = () => {
           </div>
         ) : (
           messages.map((msg, index) => (
-            <div key={index} className={`message ${msg.role}`}>
+            <div key={index} className={`message ${msg.role} ${msg.style || ''}`}>
               <div className="message-content">
                 <ReactMarkdown>{getMessageContent(msg)}</ReactMarkdown>
               </div>
             </div>
           ))
         )}
-        {isLoading && (
+        {isLoading && !messages.some(m => m.isThinking) && (
           <div className="message assistant loading">
             <div className="loading-indicator">
               <span>.</span><span>.</span><span>.</span>

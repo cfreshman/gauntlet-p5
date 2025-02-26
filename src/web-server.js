@@ -4,10 +4,13 @@ import session from 'express-session';
 import logger from './utils/logger.js';
 import AipiLayerClient from './mcp/AipiLayerClient.js';
 import spotifyClient from './utils/spotifyClient.js';
+import { ThinkingReceiveClient } from './utils/thinking-client.js';
+import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { WebSocketServer, WebSocket } from 'ws';
 
 // Load environment variables
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -15,6 +18,8 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 
 // Constants
 const REQUEST_TIMEOUT = 120000; // 2 minutes timeout
+
+// Do not start thinking server - it runs in its own process
 
 // Create express app
 const app = express();
@@ -328,63 +333,163 @@ app.post('/api/playback/seek', async (req, res) => {
   }
 });
 
-// Chat endpoint
-app.post('/api/chat', async (req, res) => {
+// Create WebSocket server attached to Express
+const wsServer = new WebSocketServer({ noServer: true });
+
+// Start server
+const port = process.env.PORT || 3000;
+const server = app.listen(port, () => {
+  logger.info(`Web server listening on port ${port}`);
+});
+
+// Handle upgrade requests
+server.on('upgrade', (request, socket, head) => {
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  
+  // Only handle WebSocket upgrades for /chat
+  if (url.pathname === '/chat') {
+    wsServer.handleUpgrade(request, socket, head, (ws) => {
+      wsServer.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
+
+// WebSocket connection handler
+wsServer.on('connection', async (ws, req) => {
+  let thinkingClient = null;
+  
   try {
-    // Verify client is connected
-    if (!client.isFullyConnected()) {
-      return res.status(503).json({
-        content: [
-          {
-            type: "text",
-            text: "service is starting up, please try again in a moment..."
-          }
-        ],
-        isError: true,
-        unready: true
-      });
-    }
+    // Get auth from query params
+    const params = new URL(req.url, 'ws://localhost').searchParams;
+    const auth = params.get('auth');
+    const sessionId = params.get('sessionId');
     
-    const { query, responseFormat, conversationHistory } = req.body;
-
-    // Get auth header and pass it as context
-    const auth = req.headers.authorization;
     if (!auth) {
-      return res.status(401).json({
-        content: [
-          {
-            type: "text",
-            text: "please log in with spotify first"
-          }
-        ],
-        isError: true
-      });
+      ws.send(JSON.stringify({
+        type: 'error',
+        content: [{
+          type: 'text',
+          text: 'please log in with spotify first'
+        }]
+      }));
+      ws.close();
+      return;
     }
 
-    // Call the music-aipi-agent tool
-    const result = await client.callTool({
-      name: 'music-aipi-agent',
-      arguments: {
-        query,
-        context: auth,
-        responseFormat: responseFormat || 'detailed',
-        conversationHistory: conversationHistory || ''
+    // Parse auth string
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(':');
+    
+    // Store tokens in Spotify client
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+
+    if (!sessionId) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        content: [{
+          type: 'text',
+          text: 'no session id provided'
+        }]
+      }));
+      ws.close();
+      return;
+    }
+
+    // Create and connect thinking client
+    thinkingClient = new ThinkingReceiveClient();
+    
+    try {
+      await thinkingClient.connect(sessionId);
+    } catch (error) {
+      logger.error(`Failed to connect thinking client for session ${sessionId}:`, error);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          content: [{
+            type: 'text',
+            text: 'failed to connect to thinking service. please try again in a moment.'
+          }]
+        }));
+      }
+      ws.close();
+      return;
+    }
+
+    // Forward thinking messages to browser
+    thinkingClient.onMessage((message) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        logger.info(`Forwarding thinking message to browser for session ${sessionId}:`, message);
+        ws.send(JSON.stringify(message));
       }
     });
 
-    // Send response
-    await res.json(result);
-  } catch (error) {
-    logger.error('Error in chat endpoint:', error);
-    await res.status(500).json({
-      content: [
-        {
-          type: "text",
-          text: "sorry, something went wrong. please try again in a moment."
+    // Handle messages from browser
+    ws.on('message', async (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        logger.info(`Received message from browser for session ${sessionId}:`, message);
+
+        if (!client.isFullyConnected()) {
+          ws.send(JSON.stringify({
+            content: [{
+              type: "text",
+              text: "service is starting up, please try again in a moment..."
+            }],
+            isError: true,
+            unready: true
+          }));
+          return;
         }
-      ],
-      isError: true
+
+        // Call the music-aipi-agent
+        const result = await client.callTool({
+          name: 'music-aipi-agent',
+          arguments: {
+            query: message.query,
+            context: `Bearer ${userId}:${accessToken}:${refreshToken}:${expirationTime}`,
+            responseFormat: message.responseFormat || 'detailed',
+            conversationHistory: message.conversationHistory || '',
+            sessionId
+          }
+        });
+
+        // Send final response
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(result));
+        }
+      } catch (error) {
+        logger.error('Error processing message:', error);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            content: [{
+              type: "text",
+              text: "sorry, something went wrong. please try again in a moment."
+            }],
+            isError: true
+          }));
+        }
+      }
     });
+
+    // Handle client disconnect
+    ws.on('close', () => {
+      logger.info(`Browser WebSocket closed for session ${sessionId}`);
+      if (thinkingClient) {
+        thinkingClient.close();
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error in WebSocket connection:', error);
+    if (thinkingClient) {
+      thinkingClient.close();
+    }
+    ws.close();
   }
 });
 
@@ -487,8 +592,7 @@ app.get('/api/artists/:id', async (req, res) => {
   }
 });
 
-// Start server
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  logger.info(`Web server listening on port ${port}`);
-}); 
+// Remove duplicate server start
+// app.listen(port, () => {
+//   logger.info(`Web server listening on port ${port}`);
+// }); 

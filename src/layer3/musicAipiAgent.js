@@ -9,11 +9,15 @@ import logger from '../utils/logger.js';
 import { OpenAI } from 'openai';
 import { z } from 'zod';
 import toolFormatter from '../utils/tool-formatter.js';
+import { ThinkingSendClient } from '../utils/thinking-client.js';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
+
+// Map to store thinking clients by session ID
+const thinkingClients = new Map();
 
 /**
  * Register the generic agent with the server
@@ -30,10 +34,20 @@ function registerMusicAipiAgent(server, clients) {
       query: z.string().describe('The user query to process'),
       context: z.string().optional().describe('Additional context information'),
       responseFormat: z.enum(['concise', 'detailed', 'technical', 'simple']).optional().describe('Format of the response'),
-      conversationHistory: z.string().optional().describe('JSON string of conversation history from the front end')
+      conversationHistory: z.string().optional().describe('JSON string of conversation history from the front end'),
+      sessionId: z.string().describe('Session ID for thinking events')
     },
-    async ({ query, context = '', responseFormat = 'detailed', conversationHistory = '' }) => {
+    async ({ query, context = '', responseFormat = 'detailed', conversationHistory = '', sessionId }) => {
       try {
+        // Create thinking client for this session if it doesn't exist
+        if (!thinkingClients.has(sessionId)) {
+          const thinkingClient = new ThinkingSendClient();
+          await thinkingClient.connect(sessionId);
+          thinkingClients.set(sessionId, thinkingClient);
+        }
+
+        const thinkingClient = thinkingClients.get(sessionId);
+
         // Parse conversation history
         let history = [];
         try {
@@ -112,6 +126,7 @@ RESPONSE FORMATS:
 1. When you need to execute actions:
 {
   "type": "actions",
+  "thinking": "your thinking about the actions you'll take",
   "actions": [
     {
       "tool": "tool-name",
@@ -175,6 +190,10 @@ RESPONSE FORMATS:
 - again, if a search for similar tracks fails or doesn't return any tracks, try something else. like the artist and their similar artists and their tracks
 - if the user asks for music similar to something, when you return it, also tell them that you can queue it
 - THINK LIKE A HUMAN. DOES A HUMAN ONLY WANT 5 SONGS ON THEIR NEW PLAYLIST. DOES A HUMAN KEEP CREATING NEW PLAYLISTS WHEN THEY WANT TO ADD MORE SONGS TO A PREVIOUS PLAYLIST. but please for the love of god do not touch existing user playlists you didn't create
+- if the user doesn't specify a subject (eg 'get similar tracks') they're probably talking about the current song
+- avoid the similar tracks tool. it's buggy
+- sometimes the user just wants songs queued, not as a new playlist - be sure the user wants a playlist before creating one
+- AVOID THE SIMILAR TRACKS TOOL. IT'S BUGGY
 
 AVAILABLE TOOLS (TOOL DESCRIPTION OUTPUT):
 ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
@@ -226,6 +245,18 @@ ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
               }]
             };
           } else if (agentAction.type === 'actions') {
+            // Emit thinking event
+            if (thinkingClient.isConnected()) {
+              const thinkingMessage = {
+                type: 'thinking',
+                content: [{
+                  type: 'text',
+                  text: agentAction.thinking || `working on ${agentAction.actions.length} actions`
+                }]
+              };
+              thinkingClient.send(thinkingMessage);
+            }
+
             // Execute all actions in parallel
             const actionResults = await Promise.all(
               agentAction.actions.map(async action => {
@@ -335,6 +366,12 @@ ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
           }
         }
 
+        // Clean up thinking client when done
+        if (thinkingClients.has(sessionId)) {
+          thinkingClients.get(sessionId).close();
+          thinkingClients.delete(sessionId);
+        }
+
         return finalResponse || {
           content: [{
             type: 'text',
@@ -343,6 +380,12 @@ ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
         };
 
       } catch (error) {
+        // Clean up thinking client on error
+        if (thinkingClients.has(sessionId)) {
+          thinkingClients.get(sessionId).close();
+          thinkingClients.delete(sessionId);
+        }
+
         logger.error('Error in music-aipi-agent:', error);
         return {
           content: [{
