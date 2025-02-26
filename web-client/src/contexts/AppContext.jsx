@@ -90,6 +90,10 @@ export const AppProvider = ({ children }) => {
       console.log('WebSocket connection opened');
       setIsConnected(true);
       retryCountRef.current = 0; // Reset retry count on successful connection
+      // Clear any connection error messages
+      setMessages(prev => prev.filter(m => !m.isError || !m.content.some(c => 
+        c.text?.includes('connection error')
+      )));
     };
 
     wsRef.current.onmessage = (event) => {

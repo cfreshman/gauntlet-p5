@@ -333,6 +333,31 @@ app.post('/api/playback/seek', async (req, res) => {
   }
 });
 
+// Add volume endpoint
+app.post('/api/playback/volume', async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
+    const { deviceId, volumePercent } = req.body;
+    await spotifyClient.setPlaybackVolume(volumePercent, deviceId, userId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error setting volume:', error);
+    res.status(500).json({ error: 'Failed to set volume' });
+  }
+});
+
 // Create WebSocket server attached to Express
 const wsServer = new WebSocketServer({ noServer: true });
 
