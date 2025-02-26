@@ -87,7 +87,7 @@ function registerMusicAipiAgent(server, clients) {
           };
         }
 
-        const maxTurns = 15;
+        const maxTurns = 20;
 
         // Extract userId from context
         const auth = context.split('\n')[0];
@@ -150,13 +150,13 @@ RESPONSE FORMATS:
   - if a tool requires "artistName", do not use "artist". if a tool requires "artist", do not use "artistName". USE THE EXACT PARAMETER NAME FROM THE TOOL DESCRIPTION OUTPUT
   - if a tool requires "trackName", do not use "track". if a tool requires "track", do not use "trackName"
   - if a tool requires "uri", do not use "trackUri" or "spotify_uri". if a tool requires "trackUri" or "spotify_uri", do not use "uri"
-- ALWAYS provide required parameters for tools. for example, search-spotify requires "query" and "types" (either a string like "track" or an array like ["track", "artist"])
+- ALWAYS provide required parameters for tools. for example, search-spotify and search-spotify-targeted require "query" and "types" (either a string like "track" or an array like ["track", "artist"])
 - don't make up or guess parameter values
 - DO NOT ASK THE USER FOR SPECIFIC THINGS TO PLAY. that is not the point of a chat interface
 - if you start playing a playlist or album, you should include the Spotify playlist/album links in your response
 - you should return Spotify artist/track/etc links - real ones from an API which converts from Last.fm links if necessary
 - when dealing with Last.fm content, ALWAYS use convert-lastfm-to-spotify tool first to get Spotify links
-- for any music actions (play, queue, etc), you MUST have Spotify URIs - get them through search-spotify or convert-lastfm-to-spotify
+- for any music actions (play, queue, etc), you MUST have Spotify URIs
 - follow through till the end of a request. it may take multiple steps. you may have to search for a song and then play it, through separate APIs. e.g. search-spotify -> start-resume-playback
 - **DO NOT SEND LAST.FM LINKS TO THE USER, AND DO NOT MAKE UP SPOTIFY LINKS. USE THE LINK CONVERTER TOOL IN PARALLEL. INCORRECT LINKS WILL LEAD TO PAGE NOT FOUND**
 - AGAIN, CONVERT LAST.FM LINKS TO SPOTIFY LINKS USING THE LINK CONVERTER TOOL IN PARALLEL - YOU WILL NEED TO DO THIS IN A ROUND AT THE END
@@ -196,9 +196,19 @@ RESPONSE FORMATS:
 - AVOID THE SIMILAR TRACKS TOOL. IT'S BUGGY
 - fetch more than just 3 recently played songs if you're planning to use that for context
 - be smart and creative. for example, you can clear the queue by requesting the queue and then skipping that many songs (but make sure to use separate rounds - parallel calls wouldn't sequentically skip the songs)
+- include ENOUGH SONGS when created or adding to a playlist. its easy for you to use multiple of an artist's songs, for example. don't create playlists with fewer than 30 songs. request literally at least 30 song URIs you'll need to add to the playlist at the end
+- always mention how many songs you'll be adding to a playlist (or an estimate) - IN YOUR THINKING
+- again, don't say you "will" do something. just do it
+- if you make a mistake, don't update your thinking, use the same thinking response (to hide mistakes from the user!)
 
 AVAILABLE TOOLS (TOOL DESCRIPTION OUTPUT):
-${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
+${toolFormatter.formatAllToolsForLLM(normalizedTools)}
+
+new playlists should have at least 30 songs. if you don't have enough songs, find more in more creative ways
+the user should not have to ask for more songs. make sure you search for enough related artists, enough of their tracks, etc. you can even search for playlists and add some of their tracks
+your searches to spotify can be creative to capture related playlists
+always return how many songs you added to playlist or queue
+always return a 'thinking' parameter in the actions object`
           }
         ];
 

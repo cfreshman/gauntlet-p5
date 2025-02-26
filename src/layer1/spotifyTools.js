@@ -38,70 +38,95 @@ function registerSpotifyTools(server) {
         const typesArray = typeof types === 'string' ? [types] : types;
         
         const results = await spotifyClient.search(query, typesArray, limit, offset, market);
+        if (!results) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ error: true, message: "No results found" })
+              }
+            ],
+            isError: true
+          };
+        }
         
         // Process results to only include essential fields
         const processed = {};
         
-        if (results.tracks) {
+        if (results.tracks?.items) {
           processed.tracks = {
             items: results.tracks.items.map(track => ({
-              name: track.name,
-              uri: track.uri,
-              href: track.external_urls.spotify,
-              artists: track.artists.map(artist => ({
-                name: artist.name,
-                uri: artist.uri,
-                href: artist.external_urls.spotify
-              })),
-              album: {
-                name: track.album.name,
+              name: track?.name || 'Unknown Track',
+              uri: track?.uri,
+              href: track?.external_urls?.spotify,
+              artists: track?.artists?.map(artist => ({
+                name: artist?.name || 'Unknown Artist',
+                uri: artist?.uri,
+                href: artist?.external_urls?.spotify
+              })) || [],
+              album: track?.album ? {
+                name: track.album.name || 'Unknown Album',
                 uri: track.album.uri,
-                href: track.album.external_urls.spotify
-              }
-            })),
-            total: results.tracks.total
+                href: track.album.external_urls?.spotify
+              } : null
+            })).filter(t => t.uri && t.name !== 'Unknown Track'),
+            total: results.tracks.total || 0
           };
         }
         
-        if (results.artists) {
+        if (results.artists?.items) {
           processed.artists = {
             items: results.artists.items.map(artist => ({
-              name: artist.name,
-              uri: artist.uri,
-              href: artist.external_urls.spotify
-            })),
-            total: results.artists.total
+              name: artist?.name || 'Unknown Artist',
+              uri: artist?.uri,
+              href: artist?.external_urls?.spotify
+            })).filter(a => a.uri && a.name !== 'Unknown Artist'),
+            total: results.artists.total || 0
           };
         }
         
-        if (results.albums) {
+        if (results.albums?.items) {
           processed.albums = {
             items: results.albums.items.map(album => ({
-              name: album.name,
-              uri: album.uri,
-              href: album.external_urls.spotify,
-              artists: album.artists.map(artist => ({
-                name: artist.name,
-                uri: artist.uri,
-                href: artist.external_urls.spotify
-              }))
-            })),
-            total: results.albums.total
+              name: album?.name || 'Unknown Album',
+              uri: album?.uri,
+              href: album?.external_urls?.spotify,
+              artists: album?.artists?.map(artist => ({
+                name: artist?.name || 'Unknown Artist',
+                uri: artist?.uri,
+                href: artist?.external_urls?.spotify
+              })) || []
+            })).filter(a => a.uri && a.name !== 'Unknown Album'),
+            total: results.albums.total || 0
           };
         }
         
-        if (results.playlists) {
+        if (results.playlists?.items) {
           processed.playlists = {
             items: results.playlists.items.map(playlist => ({
-              name: playlist.name,
-              uri: playlist.uri,
-              href: playlist.external_urls.spotify,
-              owner: {
+              name: playlist?.name || 'Unknown Playlist',
+              uri: playlist?.uri,
+              href: playlist?.external_urls?.spotify,
+              owner: playlist?.owner ? {
                 id: playlist.owner.id,
-                name: playlist.owner.display_name
+                name: playlist.owner.display_name || 'Unknown User'
+              } : null
+            })).filter(p => p.uri && p.name !== 'Unknown Playlist'),
+            total: results.playlists.total || 0
+          };
+        }
+        
+        // Check if we actually found any valid results
+        const hasResults = Object.values(processed).some(type => type?.items?.length > 0);
+        if (!hasResults) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ error: true, message: "No valid results found" })
               }
-            })),
-            total: results.playlists.total
+            ],
+            isError: true
           };
         }
         
@@ -130,6 +155,184 @@ function registerSpotifyTools(server) {
       }
     }
   );
+  
+  // Targeted search tool
+  server.tool(
+    "search-spotify-targeted",
+    "Search for a specific item on Spotify with high precision. PREFER THIS OVER search-spotify when you need exactly one result (e.g., finding a specific track, artist, album, or playlist). Returns only the best match and uses less bandwidth than a broad search.",
+    {
+      query: z.string().describe("The search query. For best results, use qualifiers like track:, artist:, album:"),
+      type: z.enum(['track', 'artist', 'album', 'playlist']).describe("The type of item to search for"),
+      market: z.string().optional().describe("Market code (ISO 3166-1 alpha-2)")
+    },
+    async ({ query, type, market = 'US' }) => {
+      try {
+        // Add type qualifier if not present
+        if (!query.toLowerCase().includes(`${type}:`)) {
+          query = `${type}:${query}`;
+        }
+        
+        logger.debug('Targeted Spotify search', { query, type, market });
+        
+        const results = await spotifyClient.search(query, [type], 1, 0, market);
+        if (!results) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ result: null, message: "No results found" })
+              }
+            ]
+          };
+        }
+        
+        // Get the first result if any
+        const items = results[`${type}s`]?.items || [];
+        const result = items[0];
+        
+        if (!result) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ result: null, message: "No matches found" })
+              }
+            ]
+          };
+        }
+        
+        // Process the result based on type
+        let processed;
+        try {
+          switch (type) {
+            case 'track':
+              if (!result.name || !result.uri) throw new Error("Invalid track data");
+              processed = {
+                name: result.name,
+                uri: result.uri,
+                href: result.external_urls?.spotify,
+                artists: result.artists?.map(artist => ({
+                  name: artist?.name || 'Unknown Artist',
+                  uri: artist?.uri,
+                  href: artist?.external_urls?.spotify
+                })) || [],
+                album: result.album ? {
+                  name: result.album.name || 'Unknown Album',
+                  uri: result.album.uri,
+                  href: result.album.external_urls?.spotify
+                } : null,
+                duration_ms: result.duration_ms,
+                popularity: result.popularity
+              };
+              break;
+              
+            case 'artist':
+              if (!result.name || !result.uri) throw new Error("Invalid artist data");
+              processed = {
+                name: result.name,
+                uri: result.uri,
+                href: result.external_urls?.spotify,
+                genres: result.genres || [],
+                popularity: result.popularity
+              };
+              break;
+              
+            case 'album':
+              if (!result.name || !result.uri) throw new Error("Invalid album data");
+              processed = {
+                name: result.name,
+                uri: result.uri,
+                href: result.external_urls?.spotify,
+                artists: result.artists?.map(artist => ({
+                  name: artist?.name || 'Unknown Artist',
+                  uri: artist?.uri,
+                  href: artist?.external_urls?.spotify
+                })) || [],
+                release_date: result.release_date,
+                total_tracks: result.total_tracks
+              };
+              break;
+              
+            case 'playlist':
+              if (!result.name || !result.uri) throw new Error("Invalid playlist data");
+              processed = {
+                name: result.name,
+                uri: result.uri,
+                href: result.external_urls?.spotify,
+                owner: result.owner ? {
+                  id: result.owner.id,
+                  name: result.owner.display_name || 'Unknown User'
+                } : null,
+                tracks: {
+                  total: result.tracks?.total || 0
+                }
+              };
+              break;
+          }
+        } catch (error) {
+          logger.error('Error processing search result:', error);
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ 
+                  result: null, 
+                  message: "Found a result but it was missing required data",
+                  error: error.message 
+                })
+              }
+            ]
+          };
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ result: processed })
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error in targeted Spotify search', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  /**
+   * Calculate a confidence score for how well the result matches the query
+   * @param {string} query - The search query
+   * @param {object} result - The search result
+   * @returns {number} - Confidence score between 0 and 1
+   */
+  function calculateConfidence(query, result) {
+    // Remove type qualifier from query
+    const cleanQuery = query.replace(/^(track:|artist:|album:|playlist:)/i, '').toLowerCase();
+    const terms = cleanQuery.split(/\s+/);
+    
+    // Get relevant text from result to match against
+    const textToMatch = [
+      result.name,
+      ...(result.artists ? result.artists.map(a => a.name) : []),
+      result.album?.name
+    ].filter(Boolean).join(' ').toLowerCase();
+    
+    // Calculate what percentage of query terms appear in the result
+    const matchedTerms = terms.filter(term => textToMatch.includes(term));
+    return matchedTerms.length / terms.length;
+  }
   
   // Convert Last.fm to Spotify tool
   server.tool(
