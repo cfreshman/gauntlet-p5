@@ -13,10 +13,64 @@ export const AppProvider = ({ children }) => {
     return savedMessages ? JSON.parse(savedMessages) : [];
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
   const { isAuthenticated, setIsAuthenticated, api, logout } = useSpotifyApi();
   const [userId, setUserId] = useState(null);
   const wsRef = useRef(null);
   const sessionIdRef = useRef(null);
+  const retryTimeoutRef = useRef(null);
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 1000;
+
+  // Initialize WebSocket connection when auth changes
+  useEffect(() => {
+    const auth = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!auth) {
+      setIsConnected(false);
+      return;
+    }
+
+    // Generate session ID if needed
+    if (!sessionIdRef.current) {
+      sessionIdRef.current = uuidv4();
+    }
+
+    connectWebSocket();
+
+    // Cleanup on unmount or auth change
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+      retryCountRef.current = 0;
+    };
+  }, [isAuthenticated]);
+
+  const retryConnection = () => {
+    if (retryCountRef.current < MAX_RETRIES) {
+      retryTimeoutRef.current = setTimeout(() => {
+        console.log(`Retrying connection attempt ${retryCountRef.current + 1}/${MAX_RETRIES}`);
+        retryCountRef.current++;
+        connectWebSocket();
+      }, RETRY_DELAY);
+    } else {
+      console.error('Max retries reached, showing error message');
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: [{
+          type: 'text',
+          text: 'connection error. please try again.'
+        }],
+        isError: true
+      }]);
+      retryCountRef.current = 0;
+    }
+  };
 
   // Initialize WebSocket connection
   const connectWebSocket = () => {
@@ -29,16 +83,13 @@ export const AppProvider = ({ children }) => {
     const { userId, accessToken, refreshToken, expirationTime } = JSON.parse(auth);
     const authString = `${userId}:${accessToken}:${refreshToken}:${expirationTime}`;
 
-    // Generate session ID if needed
-    if (!sessionIdRef.current) {
-      sessionIdRef.current = uuidv4();
-    }
-
     const wsUrl = `ws://localhost:3000/chat?auth=${encodeURIComponent(authString)}&sessionId=${sessionIdRef.current}`;
     wsRef.current = new WebSocket(wsUrl);
 
     wsRef.current.onopen = () => {
       console.log('WebSocket connection opened');
+      setIsConnected(true);
+      retryCountRef.current = 0; // Reset retry count on successful connection
     };
 
     wsRef.current.onmessage = (event) => {
@@ -89,19 +140,16 @@ export const AppProvider = ({ children }) => {
     wsRef.current.onclose = () => {
       console.log('WebSocket connection closed');
       wsRef.current = null;
+      setIsConnected(false);
+      retryConnection();
     };
 
     wsRef.current.onerror = (error) => {
       console.error('WebSocket error:', error);
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: [{
-          type: 'text',
-          text: 'connection error. please try again.'
-        }],
-        isError: true
-      }]);
-      setIsLoading(false);
+      setIsConnected(false);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
   };
 
@@ -109,16 +157,6 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
   }, [messages]);
-
-  // Cleanup WebSocket on unmount
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-    };
-  }, []);
 
   const sendMessage = async (message) => {
     if (message.trim() === '') return;
@@ -136,25 +174,15 @@ export const AppProvider = ({ children }) => {
         return;
       }
 
-      // Ensure WebSocket is connected
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        connectWebSocket();
-        // Wait for connection
-        await new Promise((resolve) => {
-          const checkConnection = setInterval(() => {
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              clearInterval(checkConnection);
-              resolve();
-            }
-          }, 100);
-        });
+      // Send message through WebSocket if connected
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          query: message,
+          conversationHistory: JSON.stringify(messages)
+        }));
+      } else {
+        throw new Error('WebSocket not connected');
       }
-
-      // Send message through WebSocket
-      wsRef.current.send(JSON.stringify({
-        query: message,
-        conversationHistory: JSON.stringify(messages)
-      }));
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -175,6 +203,7 @@ export const AppProvider = ({ children }) => {
   const value = {
     messages,
     isLoading,
+    isConnected,
     isAuthenticated,
     userId,
     setIsAuthenticated,

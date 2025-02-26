@@ -1,14 +1,74 @@
+.header-wrapper {
+  width: 100%;
+  background: var(--primary-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+
 .header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   padding: var(--space-md);
   width: 100%;
   max-width: 800px;
   margin: 0 auto;
-  border-bottom: 1px solid var(--border-color);
-  border-left: 1px solid var(--border-color);
-  border-right: 1px solid var(--border-color);
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.title {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 14px;
+  font-weight: normal;
+  margin: 0;
+  color: var(--text-color);
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-family: 'Roboto Mono', monospace;
+  font-size: 12px;
+  color: var(--disabled-color);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--disabled-color);
+  opacity: 0.5;
+}
+
+.status-dot.connected {
+  background: var(--accent-color);
+  opacity: 1;
+}
+
+.status-text {
+  font-style: italic;
+}
+
+.reset-button {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 12px;
+  color: var(--disabled-color);
+  background: none;
+  border: none;
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.reset-button:hover {
+  color: var(--text-color);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .header h1 {
@@ -39,31 +99,10 @@
   background: var(--secondary-bg);
 }
 
-.header-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-.title {
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
-}
-
 .header-controls {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-}
-
-.connection-status {
-  font-size: 11px;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-full);
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--border-color);
 }
 
 .connection-status.connected {
