@@ -42,8 +42,14 @@ export const useSpotifyApi = () => {
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    setIsAuthenticated(false);
+    // First clear server session
+    fetch('/api/auth/logout', {
+      credentials: 'include'
+    }).finally(() => {
+      // Then clear local state
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      setIsAuthenticated(false);
+    });
   }, []);
 
   const makeRequest = useCallback(async (config, retryCount = 0) => {

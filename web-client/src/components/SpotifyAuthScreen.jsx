@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import '../styles/spotify-auth-screen.css';
 
+const AUTH_STORAGE_KEY = 'music-aipi-auth';
+
 const SpotifyAuthScreen = ({ onLoginSuccess }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -10,14 +12,33 @@ const SpotifyAuthScreen = ({ onLoginSuccess }) => {
     // Check for error in URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const errorParam = urlParams.get('error');
+    const authSuccess = urlParams.get('auth') === 'success';
     
     if (errorParam) {
       setError(decodeURIComponent(errorParam));
       setLoading(false);
+    } else if (authSuccess) {
+      // Store auth data in localStorage
+      const authData = {
+        userId: urlParams.get('userId'),
+        accessToken: urlParams.get('accessToken'),
+        refreshToken: urlParams.get('refreshToken'),
+        expirationTime: parseInt(urlParams.get('expirationTime'))
+      };
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authData));
+      
+      // Clear URL parameters
+      window.history.replaceState({}, document.title, '/');
+      
+      // Notify parent of successful login
+      if (onLoginSuccess) {
+        onLoginSuccess({ authenticated: true, userId: authData.userId });
+      }
+      setLoading(false);
     } else {
       checkAuthStatus();
     }
-  }, []);
+  }, [onLoginSuccess]);
   
   // Function to check authentication status
   const checkAuthStatus = async () => {

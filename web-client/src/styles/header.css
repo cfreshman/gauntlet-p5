@@ -2,27 +2,29 @@
   width: 100%;
   background: var(--primary-bg);
   border-bottom: 1px solid var(--border-color);
+  height: 32px;
 }
 
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-md);
+  padding: 0 var(--space-md);
   width: 100%;
   max-width: 800px;
   margin: 0 auto;
+  height: 32px;
 }
 
 .header-content {
   display: flex;
   align-items: center;
-  gap: var(--space-lg);
+  gap: var(--space-md);
 }
 
 .title {
   font-family: 'Roboto Mono', monospace;
-  font-size: 14px;
+  font-size: 11px;
   font-weight: normal;
   margin: 0;
   color: var(--text-color);
@@ -33,36 +35,50 @@
   align-items: center;
   gap: var(--space-sm);
   font-family: 'Roboto Mono', monospace;
-  font-size: 12px;
+  font-size: 10px;
   color: var(--disabled-color);
+  transition: color 0.2s ease;
 }
 
 .status-dot {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
-  background: var(--disabled-color);
-  opacity: 0.5;
-}
-
-.status-dot.connected {
-  background: var(--accent-color);
-  opacity: 1;
+  background: var(--error-color);
+  opacity: 0.8;
+  transition: all 0.2s ease;
 }
 
 .status-text {
   font-style: italic;
+  color: var(--error-color);
+  transition: color 0.2s ease;
+}
+
+.connection-status.connected .status-dot {
+  background: var(--accent-color);
+}
+
+.connection-status.connected .status-text {
+  color: var(--disabled-color);
+}
+
+.connection-status.disconnected {
+  color: var(--error-color);
 }
 
 .reset-button {
   font-family: 'Roboto Mono', monospace;
-  font-size: 12px;
+  font-size: 10px;
   color: var(--disabled-color);
   background: none;
   border: none;
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-xs) var(--space-sm);
   cursor: pointer;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
+  height: 24px;
+  display: flex;
+  align-items: center;
   transition: all 0.2s ease;
 }
 
@@ -105,26 +121,52 @@
   gap: var(--space-sm);
 }
 
+.header-button {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 10px;
+  color: var(--disabled-color);
+  background: none;
+  border: none;
+  padding: 0 var(--space-sm);
+  cursor: pointer;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.header-button:hover {
+  color: var(--text-color);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.header-button span {
+  line-height: 1;
+}
+
 .connection-status.connected {
   color: var(--accent-color);
-  border-color: var(--accent-color);
 }
 
 .connection-status.disconnected {
   color: var(--error-color);
-  border-color: var(--error-color);
 }
 
 .debug-toggle,
 .clear-history,
 .show-tools {
-  font-size: 11px;
+  font-size: 10px;
   padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.3);
   color: var(--text-color);
   border: 1px solid var(--border-color);
   cursor: pointer;
+  height: 24px;
+  display: flex;
+  align-items: center;
   transition: all 0.2s ease;
 }
 
