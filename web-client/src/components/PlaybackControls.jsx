@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, 
   Pause, 
@@ -15,10 +15,8 @@ import '../styles/playback-controls.css';
 const PlaybackControls = () => {
   const [expanded, setExpanded] = useState(false);
   const [localProgress, setLocalProgress] = useState(0);
-  const [contextName, setContextName] = useState(null);
   const progressTimerRef = useRef(null);
   const { playbackState, playbackDevices, sendPlaybackCommand, handlePlayerExpandToggle } = usePlayback();
-  const apiRef = useRef(null);
 
   // Update local progress when playback state changes
   useEffect(() => {
@@ -52,37 +50,6 @@ const PlaybackControls = () => {
     };
   }, [playbackState?.is_playing, playbackState?.item?.duration_ms]);
 
-  // Fetch context name if needed
-  useEffect(() => {
-    const fetchContextName = async () => {
-      if (!playbackState?.context?.uri) {
-        setContextName(null);
-        return;
-      }
-
-      // If we already have the name, use it
-      if (playbackState.context.name) {
-        setContextName(playbackState.context.name);
-        return;
-      }
-
-      // Otherwise, fetch it using the new getContextInfo method
-      try {
-        const contextInfo = await apiRef.current.playback.getContextInfo(
-          playbackState.context.type,
-          playbackState.context.uri
-        );
-        if (contextInfo) {
-          setContextName(contextInfo.name);
-        }
-      } catch (error) {
-        console.error('Error fetching context name:', error);
-      }
-    };
-
-    fetchContextName();
-  }, [playbackState?.context?.uri]);
-
   // Check if the current device supports volume control
   const supportsVolumeControl = () => {
     if (!playbackState?.device) return false;
@@ -110,7 +77,7 @@ const PlaybackControls = () => {
     return null;
   }
 
-  const { item, is_playing, device, context } = playbackState;
+  const { item, is_playing, device } = playbackState;
   
   return (
     <div className={`playback-controls ${expanded ? 'expanded' : 'collapsed'}`}>
@@ -178,18 +145,6 @@ const PlaybackControls = () => {
                 <div className="track-title">{item.name}</div>
                 <div className="track-artist">{item.artists.map(a => a.name).join(', ')}</div>
                 <div className="album-name">{item.album.name}</div>
-                {context && context.type !== 'album' && context.href && (
-                  <a 
-                    href={context.href} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="context-name"
-                  >
-                    {context.type === 'playlist' ? 'playlist: ' : ''}
-                    {context.type === 'artist' ? 'artist radio: ' : ''}
-                    {context.name || contextName}
-                  </a>
-                )}
               </div>
             </div>
             
