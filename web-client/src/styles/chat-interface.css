@@ -105,7 +105,7 @@
   flex: 1;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
   padding: var(--space-sm) var(--space-md);
   color: var(--text-color);
   font-family: 'Roboto Mono', monospace;
@@ -114,11 +114,22 @@
   min-height: 44px;
   max-height: 200px;
   line-height: 1.5;
+  transition: border-color 0.2s ease;
 }
 
 .message-input:focus {
   outline: none;
   border-color: var(--accent-color);
+}
+
+.message-input.loading {
+  border-color: var(--border-color);
+  color: var(--disabled-color);
+}
+
+.message-input.loading::placeholder {
+  color: var(--disabled-color);
+  font-style: italic;
 }
 
 .send-button {
@@ -134,12 +145,25 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: all 0.2s ease;
 }
 
 .send-button:disabled {
   color: var(--disabled-color);
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.send-button.loading {
+  color: var(--disabled-color);
+  cursor: not-allowed;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.send-button:not(:disabled):hover {
+  color: var(--accent-color);
+  background: rgba(255, 102, 51, 0.1);
 }
 
 .chat-interface.input-hidden .input-container {

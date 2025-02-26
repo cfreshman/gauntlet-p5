@@ -310,14 +310,6 @@ class SpotifyClient {
       const url = new URL(`https://api.spotify.com/v1${endpoint}`);
       Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
 
-      // logger.debug('Making Spotify API request', { 
-      //   method, 
-      //   url: url.toString(),
-      //   userId,
-      //   hasToken: !!accessToken,
-      //   tokenStart: accessToken ? accessToken.substring(0, 10) + '...' : null
-      // });
-
       // Make request
       const response = await fetch(url.toString(), {
         method,
@@ -343,7 +335,14 @@ class SpotifyClient {
         throw new Error(`API request failed: ${response.status} ${response.statusText}`);
       }
 
-      return response.status === 204 ? null : await response.json();
+      // Check Content-Type before parsing JSON
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return await response.json();
+      }
+
+      // For non-JSON responses, return the raw text
+      return await response.text();
     } catch (error) {
       throw error;
     }
@@ -636,12 +635,60 @@ class SpotifyClient {
     try {
       deviceId = await this._getActiveDevice(deviceId, userId);
       const params = {
-        position_ms: positionMs,
+        position_ms: positionMs === 0 ? 1 : positionMs,
         ...deviceId && { device_id: deviceId }
       };
       await this.makeRequest('PUT', '/me/player/seek', params, null, userId);
     } catch (error) {
       this._handlePlaybackError(error, 'seek to position');
+    }
+  }
+
+  /**
+   * Get information about a playback context (playlist, album, artist)
+   * @param {string} type - The type of context ('playlist', 'album', 'artist')
+   * @param {string} uri - The Spotify URI of the context
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<Object>} Context information including name
+   */
+  async getContextInfo(type, uri, userId) {
+    try {
+      const contextId = uri.split(':').pop();
+      
+      switch (type) {
+        case 'playlist':
+          const playlist = await this.makeRequest('GET', `/playlists/${contextId}`, {}, null, userId);
+          return {
+            name: playlist.name,
+            type: 'playlist',
+            uri: uri,
+            href: playlist.external_urls?.spotify
+          };
+        
+        case 'album':
+          const album = await this.makeRequest('GET', `/albums/${contextId}`, {}, null, userId);
+          return {
+            name: album.name,
+            type: 'album',
+            uri: uri,
+            href: album.external_urls?.spotify
+          };
+        
+        case 'artist':
+          const artist = await this.makeRequest('GET', `/artists/${contextId}`, {}, null, userId);
+          return {
+            name: artist.name,
+            type: 'artist',
+            uri: uri,
+            href: artist.external_urls?.spotify
+          };
+          
+        default:
+          return null;
+      }
+    } catch (error) {
+      logger.error('Error getting context info:', error.message);
+      return null;
     }
   }
 
@@ -744,6 +791,143 @@ class SpotifyClient {
       await this.makeRequest('PUT', '/me/player/shuffle', params, null, userId);
     } catch (error) {
       this._handlePlaybackError(error, 'toggle shuffle');
+    }
+  }
+
+  /**
+   * Get a track by ID
+   * @param {string} trackId - The Spotify track ID
+   * @param {string} [market] - Optional market code
+   * @param {string} [userId] - User ID for user-specific tokens
+   * @returns {Promise<Object>} Track object
+   */
+  async getTrack(trackId, market = null, userId = null) {
+    try {
+      const params = market ? { market } : {};
+      return await this.makeRequest('GET', `/tracks/${trackId}`, params, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to get track: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get audio features for a track
+   * @param {string} trackId - The Spotify track ID
+   * @param {string} [userId] - User ID for user-specific tokens
+   * @returns {Promise<Object>} Audio features object
+   */
+  async getAudioFeatures(trackId, userId = null) {
+    try {
+      return await this.makeRequest('GET', `/audio-features/${trackId}`, {}, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to get audio features: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get a playlist by ID
+   * @param {string} playlistId - The Spotify playlist ID
+   * @param {string} [fields] - Optional fields to return
+   * @param {string} [market] - Optional market code
+   * @param {string} [userId] - User ID for user-specific tokens
+   * @returns {Promise<Object>} Playlist object
+   */
+  async getPlaylist(playlistId, fields = null, market = null, userId = null) {
+    try {
+      const params = {
+        ...(fields && { fields }),
+        ...(market && { market })
+      };
+      return await this.makeRequest('GET', `/playlists/${playlistId}`, params, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to get playlist: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get tracks in a playlist
+   * @param {string} playlistId - The Spotify playlist ID
+   * @param {number} [limit=20] - Number of tracks to return
+   * @param {number} [offset=0] - Offset into playlist tracks
+   * @param {string} [market] - Optional market code
+   * @param {string} [userId] - User ID for user-specific tokens
+   * @returns {Promise<Object>} Playlist tracks object
+   */
+  async getPlaylistTracks(playlistId, limit = 20, offset = 0, market = null, userId = null) {
+    try {
+      const params = {
+        limit,
+        offset,
+        ...(market && { market })
+      };
+      return await this.makeRequest('GET', `/playlists/${playlistId}/tracks`, params, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to get playlist tracks: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create a new playlist
+   * @param {string} userId - The user's Spotify ID
+   * @param {string} name - Name of the playlist
+   * @param {string} [description] - Optional description
+   * @param {boolean} [isPublic=false] - Whether the playlist is public
+   * @param {boolean} [collaborative=false] - Whether the playlist is collaborative
+   * @returns {Promise<Object>} Created playlist object
+   */
+  async createPlaylist(userId, name, description = null, isPublic = false, collaborative = false) {
+    try {
+      const data = {
+        name,
+        public: isPublic,
+        collaborative,
+        ...(description && { description })
+      };
+      return await this.makeRequest('POST', `/users/${userId}/playlists`, {}, data, userId);
+    } catch (error) {
+      throw new Error(`Failed to create playlist: ${error.message}`);
+    }
+  }
+
+  /**
+   * Add tracks to a playlist
+   * @param {string} playlistId - The Spotify playlist ID
+   * @param {string|string[]} trackUris - Track URI(s) to add
+   * @param {number} [position] - Position to insert tracks
+   * @param {string} [userId] - User ID for user-specific tokens
+   * @returns {Promise<Object>} Response object
+   */
+  async addTracksToPlaylist(playlistId, trackUris, position = null, userId = null) {
+    try {
+      const uris = Array.isArray(trackUris) ? trackUris : [trackUris];
+      const data = {
+        uris,
+        ...(position !== null && { position })
+      };
+      return await this.makeRequest('POST', `/playlists/${playlistId}/tracks`, {}, data, userId);
+    } catch (error) {
+      throw new Error(`Failed to add tracks to playlist: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get user's recently played tracks
+   * @param {number} [limit=20] - Number of tracks to return
+   * @param {number} [before] - Unix timestamp in ms to get tracks before
+   * @param {number} [after] - Unix timestamp in ms to get tracks after
+   * @param {string} userId - User ID for user-specific tokens
+   * @returns {Promise<Object>} Recently played tracks object
+   */
+  async getRecentlyPlayedTracks(limit = 20, before = null, after = null, userId) {
+    try {
+      const params = {
+        limit,
+        ...(before && { before }),
+        ...(after && { after })
+      };
+      return await this.makeRequest('GET', '/me/player/recently-played', params, null, userId);
+    } catch (error) {
+      throw new Error(`Failed to get recently played tracks: ${error.message}`);
     }
   }
 }

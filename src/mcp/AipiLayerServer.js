@@ -7,6 +7,9 @@ import WebSocket from 'ws';
 import { WebSocketServerTransport, WebSocketClientTransport } from '../utils/ws-transport.js';
 import logger from '../utils/logger.js';
 
+// Constants
+const REQUEST_TIMEOUT = 120000; // 2 minutes timeout
+
 class AipiLayerServer {
   /**
    * Create a new AIPI Layer Server
@@ -34,7 +37,8 @@ class AipiLayerServer {
         prompts: {},
         resources: {},
         tools: {}
-      }
+      },
+      requestTimeout: REQUEST_TIMEOUT
     });
 
     // Create express app
@@ -89,7 +93,7 @@ class AipiLayerServer {
         if (health.status === 'ok') {
           logger.info(`${this.name}: ${layerName} is ready, connecting...`);
           
-          // Create client
+          // Create client with matching timeout
           const client = new Client(
             {
               name: `${this.name}-to-${layerName}-client`,
@@ -100,7 +104,8 @@ class AipiLayerServer {
                 prompts: {},
                 resources: {},
                 tools: {}
-              }
+              },
+              requestTimeout: REQUEST_TIMEOUT // Add timeout to match server
             }
           );
 

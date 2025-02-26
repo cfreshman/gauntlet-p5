@@ -65,10 +65,16 @@ class LastfmClient {
       });
 
       if (!response.ok) {
-        throw new Error(`Last.fm API error (${response.status}): ${await response.text()}`);
+        const errorText = await response.text();
+        throw new Error(`Last.fm API error (${response.status}): ${errorText}`);
       }
 
       const data = await response.json();
+
+      // Check for Last.fm API error response
+      if (data.error) {
+        throw new Error(`Last.fm API error (${data.error}): ${data.message}`);
+      }
 
       // Cache the response
       responseCache.set(cacheKey, {
@@ -91,15 +97,47 @@ class LastfmClient {
     }
   }
 
-  // Export API methods
-  async getSimilarTracks(track, artist, limit = 20) {
-    return this.makeRequest({
+  /**
+   * Get tracks similar to a specified track
+   * @param {string} track - The track name to fetch similar tracks for
+   * @param {string} artist - The artist name to fetch similar tracks for
+   * @param {number} [limit=100] - Maximum number of similar tracks to return (max 100)
+   * @param {number} [autocorrect=1] - Transform misspelled artist/track names into correct names
+   * @returns {Promise<Object>} Similar tracks response
+   */
+  async getSimilarTracks(track, artist, limit = 100, autocorrect = 1) {
+    if (!track || !artist) {
+      throw new Error('Track name and artist name are required');
+    }
+
+    // Clean up track and artist names
+    const cleanTrack = track.trim();
+    const cleanArtist = artist.trim();
+
+    if (cleanTrack.length === 0 || cleanArtist.length === 0) {
+      throw new Error('Track name and artist name cannot be empty');
+    }
+
+    // Validate limit
+    if (limit < 1 || limit > 100) {
+      throw new Error('Limit must be between 1 and 100');
+    }
+
+    // Validate autocorrect
+    if (autocorrect !== 0 && autocorrect !== 1) {
+      throw new Error('Autocorrect must be 0 or 1');
+    }
+
+    const response = await this.makeRequest({
       method: 'track.getSimilar',
-      track,
-      artist,
+      track: cleanTrack,
+      artist: cleanArtist,
       limit,
-      autocorrect: 1
+      autocorrect
     });
+
+    // Return the raw response to allow error handling at the tool level
+    return response;
   }
 
   async getSimilarArtists(artist, limit = 20) {

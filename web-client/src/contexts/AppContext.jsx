@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useSpotifyApi } from '../hooks/useSpotifyApi';
 
 const STORAGE_KEY = 'music-aipi-chat-history';
 const AUTH_STORAGE_KEY = 'music-aipi-auth';
@@ -11,7 +12,7 @@ export const AppProvider = ({ children }) => {
     return savedMessages ? JSON.parse(savedMessages) : [];
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { isAuthenticated, setIsAuthenticated, api, logout } = useSpotifyApi();
   const [userId, setUserId] = useState(null);
 
   // Check auth on mount and URL params
@@ -19,12 +20,8 @@ export const AppProvider = ({ children }) => {
     const checkAuth = () => {
       const auth = localStorage.getItem(AUTH_STORAGE_KEY);
       if (auth) {
-        const { userId, accessToken, refreshToken, expirationTime } = JSON.parse(auth);
-        if (Date.now() < expirationTime) {
-          setIsAuthenticated(true);
-          setUserId(userId);
-          return;
-        }
+        const { userId } = JSON.parse(auth);
+        setUserId(userId);
       }
 
       // Check URL params for new auth
@@ -46,7 +43,7 @@ export const AppProvider = ({ children }) => {
     };
 
     checkAuth();
-  }, []);
+  }, [setIsAuthenticated]);
 
   // Save messages to localStorage
   useEffect(() => {
@@ -61,8 +58,7 @@ export const AppProvider = ({ children }) => {
     setIsLoading(true);
     
     try {
-      const auth = localStorage.getItem(AUTH_STORAGE_KEY);
-      if (!auth) {
+      if (!isAuthenticated) {
         setMessages(prev => [...prev, { 
           role: 'assistant', 
           content: "please log in with spotify first" 
@@ -70,23 +66,7 @@ export const AppProvider = ({ children }) => {
         return;
       }
 
-      const { userId, accessToken, refreshToken, expirationTime } = JSON.parse(auth);
-      const authHeader = `Bearer ${userId}:${accessToken}:${refreshToken}:${expirationTime}`;
-
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': authHeader
-        },
-        body: JSON.stringify({
-          query: message,
-          conversationHistory: JSON.stringify(messages),
-          responseFormat: 'concise'
-        })
-      });
-
-      const data = await response.json();
+      const data = await api.chat(message, messages);
       
       if (data.isError) {
         setMessages(prev => [...prev, { role: 'assistant', content: data.content[0].text }]);
@@ -108,12 +88,6 @@ export const AppProvider = ({ children }) => {
     setMessages([]);
     localStorage.removeItem(STORAGE_KEY);
     setIsLoading(false);
-  };
-
-  const logout = () => {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    setIsAuthenticated(false);
-    setUserId(null);
   };
 
   const value = {

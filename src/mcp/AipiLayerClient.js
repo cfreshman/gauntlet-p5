@@ -9,10 +9,12 @@ class AipiLayerClient {
    * @param {Object} options - Client configuration options
    * @param {string} options.name - Client name (e.g. 'aipi-layer2-client')
    * @param {Object} options.layerServers - Map of layer names to connection configs
+   * @param {number} [options.requestTimeout=60000] - Request timeout in milliseconds
    */
   constructor(options) {
     this.name = options.name;
     this.layerServers = options.layerServers || {};
+    this.requestTimeout = options.requestTimeout || 60000;
 
     // Initialize layer clients
     this.clients = {};
@@ -37,7 +39,7 @@ class AipiLayerClient {
         if (health.status === 'ok') {
           logger.info(`${this.name}: ${layerName} is ready, connecting...`);
           
-          // Create client
+          // Create client with timeout
           const client = new Client(
             {
               name: `${this.name}-to-${layerName}`,
@@ -48,7 +50,8 @@ class AipiLayerClient {
                 prompts: {},
                 resources: {},
                 tools: {}
-              }
+              },
+              requestTimeout: this.requestTimeout // Use configured timeout
             }
           );
 
@@ -194,8 +197,10 @@ class AipiLayerClient {
       throw new Error(`No client found for tool: ${toolName}`);
     }
 
-    // Pass the entire object to the SDK's callTool
-    const result = await client.callTool(params);
+    // Pass the entire object to the SDK's callTool with timeout
+    const result = await client.callTool(params, undefined, {
+      timeout: this.requestTimeout
+    });
 
     return result;
   }

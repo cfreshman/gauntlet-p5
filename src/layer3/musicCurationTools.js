@@ -588,7 +588,7 @@ async function createCollectionPlaylist(userId, theme, description, tracks) {
     
     // Add tracks to the playlist
     const trackUris = tracks.map(track => track.uri);
-    await spotifyClient.addTracksToPlaylist(playlist.id, trackUris);
+    await spotifyClient.addTracksToPlaylist(playlist.id, trackUris, null, userId);
     
     return playlist;
   } catch (error) {

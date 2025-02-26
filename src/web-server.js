@@ -13,6 +13,9 @@ import path from 'path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
+// Constants
+const REQUEST_TIMEOUT = 120000; // 2 minutes timeout
+
 // Create express app
 const app = express();
 
@@ -44,7 +47,8 @@ const client = new AipiLayerClient({
       port: 3003,
       wsPort: 3013
     }
-  }
+  },
+  requestTimeout: REQUEST_TIMEOUT // Add timeout configuration
 });
 
 // Start client connections
@@ -299,6 +303,31 @@ app.post('/api/playback/previous', async (req, res) => {
   }
 });
 
+// Add seek endpoint
+app.post('/api/playback/seek', async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
+    const { deviceId, position_ms } = req.body;
+    await spotifyClient.seekToPosition(position_ms, deviceId, userId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error seeking to position:', error);
+    res.status(500).json({ error: 'Failed to seek to position' });
+  }
+});
+
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
@@ -386,6 +415,76 @@ app.get('/health', (req, res) => {
     status: isReady ? 'ok' : 'starting',
     ready: isReady
   });
+});
+
+// Context info endpoints
+app.get('/api/playlists/:id', async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
+    const playlist = await spotifyClient.makeRequest('GET', `/playlists/${req.params.id}`, {}, null, userId);
+    res.json(playlist);
+  } catch (error) {
+    logger.error('Error getting playlist:', error);
+    res.status(500).json({ error: 'Failed to get playlist' });
+  }
+});
+
+app.get('/api/albums/:id', async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
+    const album = await spotifyClient.makeRequest('GET', `/albums/${req.params.id}`, {}, null, userId);
+    res.json(album);
+  } catch (error) {
+    logger.error('Error getting album:', error);
+    res.status(500).json({ error: 'Failed to get album' });
+  }
+});
+
+app.get('/api/artists/:id', async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
+    const artist = await spotifyClient.makeRequest('GET', `/artists/${req.params.id}`, {}, null, userId);
+    res.json(artist);
+  } catch (error) {
+    logger.error('Error getting artist:', error);
+    res.status(500).json({ error: 'Failed to get artist' });
+  }
 });
 
 // Start server

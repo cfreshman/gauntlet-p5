@@ -51,7 +51,7 @@ const SpotifyAuthScreen = ({ onLoginSuccess }) => {
     return (
       <div className="spotify-auth-screen">
         <div className="auth-content">
-          <h1>music-aipi</h1>
+          <h1>music-AIPI</h1>
           <div className="loading-message">checking spotify connection...</div>
         </div>
       </div>
@@ -62,7 +62,7 @@ const SpotifyAuthScreen = ({ onLoginSuccess }) => {
     return (
       <div className="spotify-auth-screen">
         <div className="auth-content">
-          <h1>music-aipi</h1>
+          <h1>music-AIPI</h1>
           <div className="error-message">{error}</div>
           <button className="login-button" onClick={handleLogin}>
             try again
@@ -75,7 +75,7 @@ const SpotifyAuthScreen = ({ onLoginSuccess }) => {
   return (
     <div className="spotify-auth-screen">
       <div className="auth-content">
-        <h1>music-aipi</h1>
+        <h1>music-AIPI</h1>
         <p className="auth-description">
           connect to spotify to discover, save, and play music
         </p>

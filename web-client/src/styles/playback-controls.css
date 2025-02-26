@@ -167,6 +167,20 @@
   opacity: 0.8;
 }
 
+.context-name {
+  color: var(--accent-color);
+  font-size: 11px;
+  text-decoration: none;
+  opacity: 0.9;
+  transition: opacity 0.2s ease;
+  display: block;
+  margin-top: 2px;
+}
+
+.context-name:hover {
+  opacity: 1;
+}
+
 .progress-section {
   width: 100%;
 }

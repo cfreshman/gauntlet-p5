@@ -39,11 +39,77 @@ function registerSpotifyTools(server) {
         
         const results = await spotifyClient.search(query, typesArray, limit, offset, market);
         
+        // Process results to only include essential fields
+        const processed = {};
+        
+        if (results.tracks) {
+          processed.tracks = {
+            items: results.tracks.items.map(track => ({
+              name: track.name,
+              uri: track.uri,
+              href: track.external_urls.spotify,
+              artists: track.artists.map(artist => ({
+                name: artist.name,
+                uri: artist.uri,
+                href: artist.external_urls.spotify
+              })),
+              album: {
+                name: track.album.name,
+                uri: track.album.uri,
+                href: track.album.external_urls.spotify
+              }
+            })),
+            total: results.tracks.total
+          };
+        }
+        
+        if (results.artists) {
+          processed.artists = {
+            items: results.artists.items.map(artist => ({
+              name: artist.name,
+              uri: artist.uri,
+              href: artist.external_urls.spotify
+            })),
+            total: results.artists.total
+          };
+        }
+        
+        if (results.albums) {
+          processed.albums = {
+            items: results.albums.items.map(album => ({
+              name: album.name,
+              uri: album.uri,
+              href: album.external_urls.spotify,
+              artists: album.artists.map(artist => ({
+                name: artist.name,
+                uri: artist.uri,
+                href: artist.external_urls.spotify
+              }))
+            })),
+            total: results.albums.total
+          };
+        }
+        
+        if (results.playlists) {
+          processed.playlists = {
+            items: results.playlists.items.map(playlist => ({
+              name: playlist.name,
+              uri: playlist.uri,
+              href: playlist.external_urls.spotify,
+              owner: {
+                id: playlist.owner.id,
+                name: playlist.owner.display_name
+              }
+            })),
+            total: results.playlists.total
+          };
+        }
+        
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(results, null, 2)
+              text: JSON.stringify(processed)
             }
           ]
         };
@@ -53,7 +119,10 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: `Error: ${error.message}`
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
             }
           ],
           isError: true
@@ -150,11 +219,30 @@ function registerSpotifyTools(server) {
         
         const track = await spotifyClient.getTrack(trackId, market);
         
+        // Process track to only include essential fields
+        const processed = {
+          name: track.name,
+          uri: track.uri,
+          href: track.external_urls.spotify,
+          artists: track.artists.map(artist => ({
+            name: artist.name,
+            uri: artist.uri,
+            href: artist.external_urls.spotify
+          })),
+          album: {
+            name: track.album.name,
+            uri: track.album.uri,
+            href: track.external_urls.spotify
+          },
+          duration_ms: track.duration_ms,
+          explicit: track.explicit
+        };
+        
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(track, null, 2)
+              text: JSON.stringify(processed)
             }
           ]
         };
@@ -164,7 +252,10 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: `Error: ${error.message}`
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
             }
           ],
           isError: true
@@ -216,19 +307,60 @@ function registerSpotifyTools(server) {
     {
       playlistId: z.string(),
       fields: z.string().optional(),
-      market: z.string().optional()
+      market: z.string().optional(),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
     },
-    async ({ playlistId, fields = null, market = null }) => {
+    async ({ playlistId, fields = null, market = null, userId, accessToken }) => {
       try {
         logger.debug('Getting playlist from Spotify', { playlistId, fields, market });
         
-        const playlist = await spotifyClient.getPlaylist(playlistId, fields, market);
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const playlist = await spotifyClient.getPlaylist(playlistId, fields, market, userId);
+        
+        // Process playlist to only include essential fields
+        const processed = {
+          name: playlist.name,
+          uri: playlist.uri,
+          href: playlist.external_urls.spotify,
+          description: playlist.description,
+          owner: {
+            id: playlist.owner.id,
+            name: playlist.owner.display_name
+          },
+          tracks: {
+            total: playlist.tracks.total,
+            items: playlist.tracks.items?.map(item => ({
+              added_at: item.added_at,
+              track: {
+                name: item.track.name,
+                uri: item.track.uri,
+                href: item.track.external_urls.spotify,
+                artists: item.track.artists.map(artist => ({
+                  name: artist.name,
+                  uri: artist.uri,
+                  href: artist.external_urls.spotify
+                })),
+                album: {
+                  name: item.track.album.name,
+                  uri: item.track.album.uri,
+                  href: item.track.album.external_urls.spotify
+                }
+              }
+            })) || []
+          }
+        };
         
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(playlist, null, 2)
+              text: JSON.stringify(processed)
             }
           ]
         };
@@ -238,7 +370,10 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: `Error: ${error.message}`
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
             }
           ],
           isError: true
@@ -255,19 +390,50 @@ function registerSpotifyTools(server) {
       playlistId: z.string(),
       limit: z.number().min(1).max(100).optional(),
       offset: z.number().min(0).optional(),
-      market: z.string().optional()
+      market: z.string().optional(),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
     },
-    async ({ playlistId, limit = 20, offset = 0, market = null }) => {
+    async ({ playlistId, limit = 20, offset = 0, market = null, userId, accessToken }) => {
       try {
         logger.debug('Getting playlist tracks from Spotify', { playlistId, limit, offset, market });
         
-        const tracks = await spotifyClient.getPlaylistTracks(playlistId, limit, offset, market);
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const tracks = await spotifyClient.getPlaylistTracks(playlistId, limit, offset, market, userId);
+        
+        // Process tracks to only include essential fields
+        const processed = {
+          total: tracks.total,
+          items: tracks.items.map(item => ({
+            added_at: item.added_at,
+            track: {
+              name: item.track.name,
+              uri: item.track.uri,
+              href: item.track.external_urls.spotify,
+              artists: item.track.artists.map(artist => ({
+                name: artist.name,
+                uri: artist.uri,
+                href: artist.external_urls.spotify
+              })),
+              album: {
+                name: item.track.album.name,
+                uri: item.track.album.uri,
+                href: item.track.album.external_urls.spotify
+              }
+            }
+          }))
+        };
         
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(tracks, null, 2)
+              text: JSON.stringify(processed)
             }
           ]
         };
@@ -277,7 +443,10 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: `Error: ${error.message}`
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
             }
           ],
           isError: true
@@ -291,23 +460,42 @@ function registerSpotifyTools(server) {
     "create-playlist",
     "Create a new playlist",
     {
-      userId: z.string(),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token"),
       name: z.string(),
       description: z.string().optional(),
       public: z.boolean().optional(),
       collaborative: z.boolean().optional()
     },
-    async ({ userId, name, description = null, public: isPublic = false, collaborative = false }) => {
+    async ({ userId, accessToken, name, description = null, public: isPublic = false, collaborative = false }) => {
       try {
         logger.debug('Creating playlist on Spotify', { userId, name, description, isPublic, collaborative });
         
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
         const playlist = await spotifyClient.createPlaylist(userId, name, description, isPublic, collaborative);
+        
+        // Process playlist to only include essential fields
+        const processed = {
+          name: playlist.name,
+          uri: playlist.uri,
+          href: playlist.external_urls.spotify,
+          description: playlist.description,
+          owner: {
+            id: playlist.owner.id,
+            name: playlist.owner.display_name
+          }
+        };
         
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(playlist, null, 2)
+              text: JSON.stringify(processed)
             }
           ]
         };
@@ -317,7 +505,10 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: `Error: ${error.message}`
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
             }
           ],
           isError: true
@@ -336,13 +527,21 @@ function registerSpotifyTools(server) {
         z.string(),
         z.array(z.string())
       ]),
-      position: z.number().optional()
+      position: z.number().optional(),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
     },
-    async ({ playlistId, trackUris, position = null }) => {
+    async ({ playlistId, trackUris, position = null, userId, accessToken }) => {
       try {
         logger.debug('Adding tracks to playlist on Spotify', { playlistId, trackUris, position });
         
-        const result = await spotifyClient.addTracksToPlaylist(playlistId, trackUris, position);
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.addTracksToPlaylist(playlistId, trackUris, position, userId);
         
         return {
           content: [
@@ -401,7 +600,7 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
+              text: typeof result === 'string' ? '{"success": true}' : JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
@@ -441,11 +640,72 @@ function registerSpotifyTools(server) {
         
         const state = await spotifyClient.getPlaybackState(userId);
         
+        // Process state to only include essential fields
+        const processed = state ? {
+          is_playing: state.is_playing,
+          progress_ms: state.progress_ms,
+          context: state.context ? {
+            type: state.context.type,
+            uri: state.context.uri,
+            href: state.context.external_urls?.spotify
+          } : null,
+          item: state.item ? {
+            name: state.item.name,
+            uri: state.item.uri,
+            href: state.item.external_urls?.spotify,
+            duration_ms: state.item.duration_ms,
+            explicit: state.item.explicit,
+            artists: state.item.artists.map(artist => ({
+              name: artist.name,
+              uri: artist.uri,
+              href: artist.external_urls?.spotify
+            })),
+            album: {
+              name: state.item.album.name,
+              uri: state.item.album.uri,
+              href: state.item.album.external_urls?.spotify,
+              images: state.item.album.images
+            }
+          } : null,
+          device: state.device ? {
+            id: state.device.id,
+            name: state.device.name,
+            type: state.device.type,
+            is_active: state.device.is_active,
+            volume_percent: state.device.volume_percent,
+            supports_volume: state.device.supports_volume
+          } : null,
+          repeat_state: state.repeat_state,
+          shuffle_state: state.shuffle_state
+        } : null;
+        
+        // If we have a context, fetch its name
+        if (processed?.context) {
+          try {
+            const contextId = processed.context.uri.split(':').pop();
+            const contextType = processed.context.type;
+            
+            let contextResponse;
+            if (contextType === 'playlist') {
+              contextResponse = await spotifyClient.makeRequest('GET', `/playlists/${contextId}`, {}, null, userId);
+              processed.context.name = contextResponse.name;
+            } else if (contextType === 'album') {
+              contextResponse = await spotifyClient.makeRequest('GET', `/albums/${contextId}`, {}, null, userId);
+              processed.context.name = contextResponse.name;
+            } else if (contextType === 'artist') {
+              contextResponse = await spotifyClient.makeRequest('GET', `/artists/${contextId}`, {}, null, userId);
+              processed.context.name = contextResponse.name;
+            }
+          } catch (error) {
+            logger.warn('Error fetching context name:', error.message);
+          }
+        }
+        
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(state, null, 2)
+              text: JSON.stringify(processed)
             }
           ]
         };
@@ -455,7 +715,10 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: `Error: ${error.message}`
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
             }
           ],
           isError: true
@@ -528,11 +791,33 @@ function registerSpotifyTools(server) {
         
         const track = await spotifyClient.getCurrentlyPlaying(userId);
         
+        // Process track to only include essential fields
+        const processed = track ? {
+          is_playing: track.is_playing,
+          progress_ms: track.progress_ms,
+          item: track.item ? {
+            name: track.item.name,
+            uri: track.item.uri,
+            href: track.item.external_urls.spotify,
+            duration_ms: track.item.duration_ms,
+            artists: track.item.artists.map(artist => ({
+              name: artist.name,
+              uri: artist.uri,
+              href: artist.external_urls.spotify
+            })),
+            album: {
+              name: track.item.album.name,
+              uri: track.item.album.uri,
+              href: track.item.album.external_urls.spotify
+            }
+          } : null
+        } : null;
+        
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(track, null, 2)
+              text: JSON.stringify(processed)
             }
           ]
         };
@@ -542,7 +827,10 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: `Error: ${error.message}`
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
             }
           ],
           isError: true
@@ -559,19 +847,48 @@ function registerSpotifyTools(server) {
       limit: z.number().min(1).max(50).optional().describe("Number of tracks to return (default: 20)"),
       before: z.number().optional().describe("Return tracks before this Unix timestamp in milliseconds"),
       after: z.number().optional().describe("Return tracks after this Unix timestamp in milliseconds"),
-      userId: z.string().describe("User ID for user-specific tokens")
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
     },
-    async ({ limit = 20, before = null, after = null, userId }) => {
+    async ({ limit = 20, before = null, after = null, userId, accessToken }) => {
       try {
         logger.debug('Getting recently played tracks', { limit, before, after });
+
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
         
         const tracks = await spotifyClient.getRecentlyPlayedTracks(limit, before, after, userId);
+        
+        // Process tracks to only include essential fields
+        const processed = {
+          items: tracks.items.map(item => ({
+            played_at: item.played_at,
+            track: {
+              name: item.track.name,
+              uri: item.track.uri,
+              href: item.track.external_urls.spotify,
+              artists: item.track.artists.map(artist => ({
+                name: artist.name,
+                uri: artist.uri,
+                href: artist.external_urls.spotify
+              })),
+              album: {
+                name: item.track.album.name,
+                uri: item.track.album.uri,
+                href: item.track.album.external_urls.spotify
+              }
+            }
+          }))
+        };
         
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(tracks, null, 2)
+              text: JSON.stringify(processed)
             }
           ]
         };
@@ -581,7 +898,10 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: `Error: ${error.message}`
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
             }
           ],
           isError: true
@@ -751,7 +1071,7 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
+              text: typeof result === 'string' ? '{"success": true}' : JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
@@ -791,11 +1111,12 @@ function registerSpotifyTools(server) {
         
         const result = await spotifyClient.skipToNext(deviceId, userId);
         
+        // Handle both JSON and non-JSON responses
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
+              text: typeof result === 'string' ? '{"success": true}' : JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
@@ -839,7 +1160,7 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
+              text: typeof result === 'string' ? '{"success": true}' : JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
@@ -884,7 +1205,7 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
+              text: typeof result === 'string' ? '{"success": true}' : JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
@@ -929,7 +1250,7 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
+              text: typeof result === 'string' ? '{"success": true}' : JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
@@ -974,7 +1295,7 @@ function registerSpotifyTools(server) {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
+              text: typeof result === 'string' ? '{"success": true}' : JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
@@ -1013,18 +1334,142 @@ function registerSpotifyTools(server) {
           expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
         });
         
-        const result = await spotifyClient.togglePlaybackShuffle(state, deviceId);
+        const result = await spotifyClient.togglePlaybackShuffle(state, deviceId, userId);
         
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
+              text: typeof result === 'string' ? '{"success": true}' : JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
       } catch (error) {
         logger.error('Error toggling playback shuffle', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Get user's playlists tool
+  server.tool(
+    "get-user-playlists",
+    "Get a list of the user's playlists",
+    {
+      limit: z.number().min(1).max(50).optional().describe("Maximum number of playlists to return (default: 20)"),
+      offset: z.number().min(0).optional().describe("The index of the first playlist to return"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ limit = 20, offset = 0, userId, accessToken }) => {
+      try {
+        logger.debug('Getting user playlists from Spotify', { limit, offset });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const playlists = await spotifyClient.makeRequest('GET', '/me/playlists', { limit, offset }, null, userId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(playlists, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error getting user playlists from Spotify', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+
+  // Search user's playlists tool
+  server.tool(
+    "search-user-playlists",
+    "Search through the user's playlists by name",
+    {
+      query: z.string().describe("Search query to match against playlist names"),
+      limit: z.number().min(1).max(50).optional().describe("Maximum number of playlists to return (default: 20)"),
+      offset: z.number().min(0).optional().describe("The index of the first playlist to return"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ query, limit = 20, offset = 0, userId, accessToken }) => {
+      try {
+        logger.debug('Searching user playlists', { query });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        // Get initial page of playlists
+        const response = await spotifyClient.makeRequest('GET', '/me/playlists', { limit: 50, offset: 0 }, null, userId);
+        
+        // Filter playlists by query
+        const queryLower = query.toLowerCase();
+        const matchingPlaylists = response.items.filter(playlist => 
+          playlist.name.toLowerCase().includes(queryLower)
+        );
+        
+        // If we found enough matches or there are no more playlists, return results
+        if (matchingPlaylists.length >= limit || !response.next) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  total: matchingPlaylists.length,
+                  playlists: matchingPlaylists.slice(offset, offset + limit)
+                }, null, 2)
+              }
+            ]
+          };
+        }
+        
+        // Otherwise, get one more page
+        const nextResponse = await spotifyClient.makeRequest('GET', '/me/playlists', { limit: 50, offset: 50 }, null, userId);
+        const nextMatches = nextResponse.items.filter(playlist => 
+          playlist.name.toLowerCase().includes(queryLower)
+        );
+        
+        matchingPlaylists.push(...nextMatches);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                total: matchingPlaylists.length,
+                playlists: matchingPlaylists.slice(offset, offset + limit)
+              }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error searching user playlists', { error: error.message });
         return {
           content: [
             {

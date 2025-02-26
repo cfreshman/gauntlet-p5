@@ -13,7 +13,9 @@ const Header = () => {
 
   return (
     <header className="header">
-      <h1>music-aipi</h1>
+      <div className="header-content">
+        <h1 className="title">music-AIPI</h1>
+      </div>
       {messages.length > 0 && (
         <button onClick={handleClearClick} className="clear-button">
           <Trash size={16} weight="bold" />

@@ -12,10 +12,15 @@ const ChatInterface = () => {
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Scroll to bottom when messages change
+  // Scroll to bottom when messages change or player state changes
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    // Add a small delay to ensure player animation is complete
+    const scrollTimeout = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 300); // 300ms matches the player animation duration
+
+    return () => clearTimeout(scrollTimeout);
+  }, [messages, playerExpanded]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -28,20 +33,25 @@ const ChatInterface = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (inputValue.trim()) {
-      sendMessage(inputValue.trim());
-      setInputValue('');
-      // Reset height
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
+    // Prevent sending if already loading or input is empty
+    if (isLoading || !inputValue.trim()) {
+      return;
+    }
+    sendMessage(inputValue.trim());
+    setInputValue('');
+    // Reset height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
     }
   };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e);
+      // Prevent sending if loading
+      if (!isLoading) {
+        handleSubmit(e);
+      }
     }
   };
 
@@ -89,14 +99,18 @@ const ChatInterface = () => {
         <form className="input-container" onSubmit={handleSubmit}>
           <textarea
             ref={textareaRef}
-            className="message-input"
+            className={`message-input ${isLoading ? 'loading' : ''}`}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="type a message..."
+            placeholder={isLoading ? "waiting for response..." : "type a message..."}
             rows={1}
           />
-          <button type="submit" className="send-button" disabled={!inputValue.trim()}>
+          <button 
+            type="submit" 
+            className={`send-button ${isLoading ? 'loading' : ''}`} 
+            disabled={!inputValue.trim() || isLoading}
+          >
             <PaperPlaneTilt weight="bold" size={20} />
           </button>
         </form>
