@@ -369,6 +369,57 @@ function registerSpotifyTools(server) {
   
   // Player API tools
   
+  // Start/Resume playback tool
+  server.tool(
+    "start-resume-playback",
+    "Start or resume playback on the user's active device. To play specific content, either contextUri or uris must be provided. Without either, this will resume current playback.",
+    {
+      deviceId: z.string().optional().describe("Spotify device ID to play on"),
+      contextUri: z.string().optional().describe("Spotify URI of album/playlist/artist to play (required if playing a context)"),
+      uris: z.array(z.string()).optional().describe("Array of Spotify track URIs to play (required if playing specific tracks)"),
+      offset: z.object({
+        position: z.number().optional(),
+        uri: z.string().optional()
+      }).optional().describe("Starting position (position or uri) - only valid with contextUri or uris"),
+      positionMs: z.number().optional().describe("Position in milliseconds to start playback from"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ deviceId = null, contextUri = null, uris = null, offset = null, positionMs = null, userId, accessToken }) => {
+      try {
+        logger.debug('Starting/resuming playback', { deviceId, contextUri, uris, offset, positionMs });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.startPlayback(deviceId, contextUri, uris, offset, positionMs, userId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result || { success: true }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error starting/resuming playback', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
   // Get playback state tool
   server.tool(
     "get-playback-state",
