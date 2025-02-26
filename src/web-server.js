@@ -316,22 +316,38 @@ app.post('/api/chat', async (req, res) => {
       });
     }
     
-    const { query, context, responseFormat, conversationHistory } = req.body;
+    const { query, responseFormat, conversationHistory } = req.body;
+
+    // Get auth header and pass it as context
+    const auth = req.headers.authorization;
+    if (!auth) {
+      return res.status(401).json({
+        content: [
+          {
+            type: "text",
+            text: "please log in with spotify first"
+          }
+        ],
+        isError: true
+      });
+    }
 
     // Call the music-aipi-agent tool
     const result = await client.callTool({
       name: 'music-aipi-agent',
       arguments: {
         query,
-        context: context || '',
+        context: auth,
         responseFormat: responseFormat || 'detailed',
         conversationHistory: conversationHistory || ''
       }
     });
-    res.json(result);
+
+    // Send response
+    await res.json(result);
   } catch (error) {
     logger.error('Error in chat endpoint:', error);
-    res.status(500).json({
+    await res.status(500).json({
       content: [
         {
           type: "text",

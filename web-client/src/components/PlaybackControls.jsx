@@ -72,30 +72,9 @@ const PlaybackControls = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // Show minimal controls even when no track is playing
+  // Return null if no playback state or no track
   if (!playbackState || !playbackState.item) {
-    return (
-      <div className="playback-controls inactive">
-        <div className="playback-header">
-          <div className="playback-status">no active playback</div>
-          <div className="device-selector">
-            {playbackDevices && playbackDevices.length > 0 && (
-              <select 
-                onChange={(e) => sendPlaybackCommand('transfer', { deviceId: e.target.value })}
-                value=""
-              >
-                <option value="" disabled>select device</option>
-                {playbackDevices.map(d => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} {d.is_active ? '(active)' : ''}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   const { item, is_playing, device } = playbackState;

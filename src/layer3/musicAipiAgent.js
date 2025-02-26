@@ -62,12 +62,35 @@ function registerMusicAipiAgent(server, clients) {
         if (totalTools === 0) {
           logger.warn('No tools available from any layer');
           return {
-            content: [{
-              type: "text",
-              text: "i'm sorry, i'm still initializing and don't have access to any tools yet. please try again in a moment."
-            }]
+            content: [
+              {
+                type: "text",
+                text: "i'm sorry, i'm still initializing and don't have access to any tools yet. please try again in a moment."
+              }
+            ],
+            isError: true,
+            unready: true
           };
         }
+
+        const maxTurns = 10;
+
+        // Extract userId from context
+        const auth = context.split('\n')[0];
+        const [_, authValue] = auth ? auth.split('Bearer ') : [];
+        const [userId, accessToken, refreshToken, expirationTime] = authValue ? authValue.split(':') : [];
+
+        if (!userId || !accessToken || !refreshToken || !expirationTime) {
+          return {
+            content: [{
+              type: "text",
+              text: "i'm sorry, i need authentication to access spotify. please log in first."
+            }],
+            isError: true
+          };
+        }
+
+        logger.debug('Extracted auth info:', { userId, tokenStart: accessToken.substring(0, 10) + '...' });
 
         // Start agent loop
         const agentMessages = [
@@ -77,8 +100,13 @@ function registerMusicAipiAgent(server, clients) {
 
 CAPABILITIES:
 - you can plan and execute multiple actions in parallel
-- you can use tool results to plan additional actions
+- you can use tool results to plan additional actions - you get ${maxTurns} turns maximum to complete a request
 - you can generate natural language responses
+
+USER CONTEXT:
+- spotify user id: ${userId}
+- spotify access token: ${accessToken}
+- when calling tools that require userId or accessToken, use these values
 
 RESPONSE FORMATS:
 
@@ -101,11 +129,14 @@ RESPONSE FORMATS:
 }
 
 RULES:
-1. all responses must be valid JSON
-2. text responses must be lowercase, EXCEPT for proper nouns (e.g. artist names, album titles, song names, etc.) which should be capitalized
-3. plan efficient parallel actions when possible
-4. use exact parameter names from tool descriptions - for example, if a tool requires "artist", do not use "artist_name"
-5. don't make up or guess parameter values
+- all responses must be valid JSON
+- text responses must be lowercase, EXCEPT for proper nouns (e.g. artist names, album titles, song names, etc.) which should be capitalized
+- plan efficient parallel actions when possible
+- use exact parameter names from tool descriptions - for example, if a tool requires "artist", do not use "artist_name"
+- ALWAYS provide required parameters for tools. for example, search-spotify requires "query" and "types" (either a string like "track" or an array like ["track", "artist"])
+- don't make up or guess parameter values
+- you should try to return Spotify artist/track/etc links - real ones from an API
+- follow through till the end of a request. it may take multiple steps. you may have to search for a song and then play it, through separate APIs. e.g. search-spotify -> start-resume-playback
 
 AVAILABLE TOOLS:
 ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
@@ -129,7 +160,6 @@ ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
         });
 
         let finalResponse = null;
-        const maxTurns = 5;
         let turn = 0;
 
         while (!finalResponse && turn < maxTurns) {
@@ -173,9 +203,39 @@ ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
                     return `Error: No client for ${tool.layer}`;
                   }
 
+                  // Inject userId into tool arguments if the tool requires it
+                  const toolSchema = tool.inputSchema || {};
+                  logger.debug('Raw tool schema:', toolSchema);
+                  
+                  // Extract required fields from JSON Schema
+                  const requiredFields = toolSchema.required || [];
+                  const needsUserId = requiredFields.includes('userId');
+                  const needsToken = requiredFields.includes('accessToken');
+
+                  logger.debug('Tool parameters:', {
+                    tool: action.tool,
+                    schema: toolSchema,
+                    requiredFields,
+                    needsUserId,
+                    needsToken,
+                    originalArgs: action.args
+                  });
+
+                  const args = {
+                    ...action.args,
+                    ...(needsUserId && { userId }),
+                    ...(needsToken && { accessToken })
+                  };
+
+                  logger.debug('Final tool arguments:', {
+                    tool: action.tool,
+                    args,
+                    userId
+                  });
+
                   const result = await client.callTool({
                     name: action.tool,
-                    arguments: action.args
+                    arguments: args
                   });
 
                   return {
@@ -183,6 +243,7 @@ ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
                     result: result
                   };
                 } catch (error) {
+                  logger.error(`Error executing ${action.tool}:`, error);
                   return `Error executing ${action.tool}: ${error.message}`;
                 }
               })
@@ -223,10 +284,24 @@ ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
  */
 function findTool(toolName, tools) {
   const layer1Tool = tools.layer1?.find(t => t.name === toolName);
-  if (layer1Tool) return { ...layer1Tool, layer: 'layer1' };
+  if (layer1Tool) {
+    logger.debug('Found tool in layer1:', layer1Tool);
+    return { 
+      ...layer1Tool,
+      layer: 'layer1',
+      parameters: layer1Tool.parameters || {}
+    };
+  }
   
   const layer2Tool = tools.layer2?.find(t => t.name === toolName);
-  if (layer2Tool) return { ...layer2Tool, layer: 'layer2' };
+  if (layer2Tool) {
+    logger.debug('Found tool in layer2:', layer2Tool);
+    return { 
+      ...layer2Tool,
+      layer: 'layer2',
+      parameters: layer2Tool.parameters || {}
+    };
+  }
   
   return null;
 }

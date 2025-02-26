@@ -374,13 +374,21 @@ function registerSpotifyTools(server) {
     "get-playback-state",
     "Get information about the user's current playback state",
     {
-      market: z.string().optional().describe("An ISO 3166-1 alpha-2 country code")
+      market: z.string().optional().describe("An ISO 3166-1 alpha-2 country code"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
     },
-    async ({ market = null }) => {
+    async ({ market = null, userId, accessToken }) => {
       try {
         logger.debug('Getting playback state from Spotify', { market });
         
-        const state = await spotifyClient.getPlaybackState(market);
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const state = await spotifyClient.getPlaybackState(userId);
         
         return {
           content: [
@@ -409,12 +417,21 @@ function registerSpotifyTools(server) {
   server.tool(
     "get-available-devices",
     "Get the user's available Spotify Connect devices",
-    {},
-    async () => {
+    {
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ userId, accessToken }) => {
       try {
         logger.debug('Getting available devices from Spotify');
         
-        const devices = await spotifyClient.getAvailableDevices();
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const devices = await spotifyClient.getAvailableDevices(userId);
         
         return {
           content: [
@@ -444,13 +461,21 @@ function registerSpotifyTools(server) {
     "get-currently-playing-track",
     "Get the user's currently playing track",
     {
-      market: z.string().optional().describe("An ISO 3166-1 alpha-2 country code")
+      market: z.string().optional().describe("An ISO 3166-1 alpha-2 country code"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
     },
-    async ({ market = null }) => {
+    async ({ market = null, userId, accessToken }) => {
       try {
         logger.debug('Getting currently playing track from Spotify', { market });
         
-        const track = await spotifyClient.getCurrentlyPlayingTrack(market);
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const track = await spotifyClient.getCurrentlyPlaying(userId);
         
         return {
           content: [
@@ -475,345 +500,6 @@ function registerSpotifyTools(server) {
     }
   );
   
-  // Transfer playback tool
-  server.tool(
-    "transfer-playback",
-    "Transfer playback to a different device",
-    {
-      deviceIds: z.union([
-        z.string(),
-        z.array(z.string())
-      ]).describe("Spotify device ID(s) to transfer playback to"),
-      play: z.boolean().optional().describe("Whether to ensure playback happens on the new device")
-    },
-    async ({ deviceIds, play = false }) => {
-      try {
-        logger.debug('Transferring playback to device', { deviceIds, play });
-        
-        const result = await spotifyClient.transferPlayback(deviceIds, play);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error transferring playback', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
-  // Start/resume playback tool
-  server.tool(
-    "start-resume-playback",
-    "Start or resume playback on the user's active device",
-    {
-      deviceId: z.string().optional().describe("Spotify device ID to play on"),
-      contextUri: z.string().optional().describe("Spotify URI of the context to play (album, artist, playlist)"),
-      uris: z.array(z.string()).optional().describe("Array of Spotify track URIs to play"),
-      offset: z.object({
-        position: z.number().optional(),
-        uri: z.string().optional()
-      }).optional().describe("Offset in the context"),
-      positionMs: z.number().optional().describe("Position in the track (in milliseconds)")
-    },
-    async ({ deviceId = null, contextUri = null, uris = null, offset = null, positionMs = null }) => {
-      try {
-        logger.debug('Starting/resuming playback', { deviceId, contextUri, uris, offset, positionMs });
-        
-        const result = await spotifyClient.startResumePlayback(deviceId, contextUri, uris, offset, positionMs);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error starting/resuming playback', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
-  // Pause playback tool
-  server.tool(
-    "pause-playback",
-    "Pause playback on the user's active device",
-    {
-      deviceId: z.string().optional().describe("Spotify device ID to pause on")
-    },
-    async ({ deviceId = null }) => {
-      try {
-        logger.debug('Pausing playback', { deviceId });
-        
-        const result = await spotifyClient.pausePlayback(deviceId);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error pausing playback', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
-  // Skip to next tool
-  server.tool(
-    "skip-to-next",
-    "Skip to the next track in the queue",
-    {
-      deviceId: z.string().optional().describe("Spotify device ID")
-    },
-    async ({ deviceId = null }) => {
-      try {
-        logger.debug('Skipping to next track', { deviceId });
-        
-        const result = await spotifyClient.skipToNext(deviceId);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error skipping to next track', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
-  // Skip to previous tool
-  server.tool(
-    "skip-to-previous",
-    "Skip to the previous track in the queue",
-    {
-      deviceId: z.string().optional().describe("Spotify device ID")
-    },
-    async ({ deviceId = null }) => {
-      try {
-        logger.debug('Skipping to previous track', { deviceId });
-        
-        const result = await spotifyClient.skipToPrevious(deviceId);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error skipping to previous track', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
-  // Seek to position tool
-  server.tool(
-    "seek-to-position",
-    "Seek to a position in the currently playing track",
-    {
-      positionMs: z.number().describe("Position in milliseconds to seek to"),
-      deviceId: z.string().optional().describe("Spotify device ID")
-    },
-    async ({ positionMs, deviceId = null }) => {
-      try {
-        logger.debug('Seeking to position', { positionMs, deviceId });
-        
-        const result = await spotifyClient.seekToPosition(positionMs, deviceId);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error seeking to position', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
-  // Set repeat mode tool
-  server.tool(
-    "set-repeat-mode",
-    "Set the repeat mode for the user's playback",
-    {
-      state: z.enum(['track', 'context', 'off']).describe("Repeat mode: 'track', 'context', or 'off'"),
-      deviceId: z.string().optional().describe("Spotify device ID")
-    },
-    async ({ state, deviceId = null }) => {
-      try {
-        logger.debug('Setting repeat mode', { state, deviceId });
-        
-        const result = await spotifyClient.setRepeatMode(state, deviceId);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error setting repeat mode', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
-  // Set playback volume tool
-  server.tool(
-    "set-playback-volume",
-    "Set the volume for the user's playback",
-    {
-      volumePercent: z.number().min(0).max(100).describe("Volume percentage (0-100)"),
-      deviceId: z.string().optional().describe("Spotify device ID")
-    },
-    async ({ volumePercent, deviceId = null }) => {
-      try {
-        logger.debug('Setting playback volume', { volumePercent, deviceId });
-        
-        const result = await spotifyClient.setPlaybackVolume(volumePercent, deviceId);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error setting playback volume', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
-  // Toggle playback shuffle tool
-  server.tool(
-    "toggle-playback-shuffle",
-    "Toggle shuffle mode for the user's playback",
-    {
-      state: z.boolean().describe("Shuffle state (true or false)"),
-      deviceId: z.string().optional().describe("Spotify device ID")
-    },
-    async ({ state, deviceId = null }) => {
-      try {
-        logger.debug('Toggling playback shuffle', { state, deviceId });
-        
-        const result = await spotifyClient.togglePlaybackShuffle(state, deviceId);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error toggling playback shuffle', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
   // Get recently played tracks tool
   server.tool(
     "get-recently-played-tracks",
@@ -821,13 +507,14 @@ function registerSpotifyTools(server) {
     {
       limit: z.number().min(1).max(50).optional().describe("Number of tracks to return (default: 20)"),
       before: z.number().optional().describe("Return tracks before this Unix timestamp in milliseconds"),
-      after: z.number().optional().describe("Return tracks after this Unix timestamp in milliseconds")
+      after: z.number().optional().describe("Return tracks after this Unix timestamp in milliseconds"),
+      userId: z.string().describe("User ID for user-specific tokens")
     },
-    async ({ limit = 20, before = null, after = null }) => {
+    async ({ limit = 20, before = null, after = null, userId }) => {
       try {
         logger.debug('Getting recently played tracks', { limit, before, after });
         
-        const tracks = await spotifyClient.getRecentlyPlayedTracks(limit, before, after);
+        const tracks = await spotifyClient.getRecentlyPlayedTracks(limit, before, after, userId);
         
         return {
           content: [
@@ -856,12 +543,21 @@ function registerSpotifyTools(server) {
   server.tool(
     "get-queue",
     "Get the user's queue",
-    {},
-    async () => {
+    {
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ userId, accessToken }) => {
       try {
         logger.debug('Getting queue from Spotify');
         
-        const queue = await spotifyClient.getQueue();
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const queue = await spotifyClient.getQueue(userId);
         
         return {
           content: [
@@ -892,13 +588,21 @@ function registerSpotifyTools(server) {
     "Add an item to the end of the user's queue",
     {
       uri: z.string().describe("Spotify URI of the item to add"),
-      deviceId: z.string().optional().describe("Spotify device ID")
+      deviceId: z.string().optional().describe("Spotify device ID"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
     },
-    async ({ uri, deviceId = null }) => {
+    async ({ uri, deviceId = null, userId, accessToken }) => {
       try {
         logger.debug('Adding item to queue', { uri, deviceId });
         
-        const result = await spotifyClient.addToQueue(uri, deviceId);
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.addToQueue(uri, deviceId, userId);
         
         return {
           content: [
@@ -910,6 +614,366 @@ function registerSpotifyTools(server) {
         };
       } catch (error) {
         logger.error('Error adding item to queue', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Transfer playback tool
+  server.tool(
+    "transfer-playback",
+    "Transfer playback to a different device",
+    {
+      deviceIds: z.union([
+        z.string(),
+        z.array(z.string())
+      ]).describe("Spotify device ID(s) to transfer playback to"),
+      play: z.boolean().optional().describe("Whether to ensure playback happens on the new device"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ deviceIds, play = false, userId, accessToken }) => {
+      try {
+        logger.debug('Transferring playback to device', { deviceIds, play });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.transferPlayback(deviceIds, play, userId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result || { success: true }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error transferring playback', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Pause playback tool
+  server.tool(
+    "pause-playback",
+    "Pause playback on the user's active device",
+    {
+      deviceId: z.string().optional().describe("Spotify device ID to pause on"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ deviceId = null, userId, accessToken }) => {
+      try {
+        logger.debug('Pausing playback', { deviceId });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.pausePlayback(deviceId, userId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result || { success: true }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error pausing playback', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Skip to next tool
+  server.tool(
+    "skip-to-next",
+    "Skip to the next track in the queue",
+    {
+      deviceId: z.string().optional().describe("Spotify device ID"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ deviceId = null, userId, accessToken }) => {
+      try {
+        logger.debug('Skipping to next track', { deviceId });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.skipToNext(deviceId, userId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result || { success: true }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error skipping to next track', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Skip to previous tool
+  server.tool(
+    "skip-to-previous",
+    "Skip to the previous track in the queue",
+    {
+      deviceId: z.string().optional().describe("Spotify device ID"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ deviceId = null, userId, accessToken }) => {
+      try {
+        logger.debug('Skipping to previous track', { deviceId });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.skipToPrevious(deviceId, userId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result || { success: true }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error skipping to previous track', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Seek to position tool
+  server.tool(
+    "seek-to-position",
+    "Seek to a position in the currently playing track",
+    {
+      positionMs: z.number().describe("Position in milliseconds to seek to"),
+      deviceId: z.string().optional().describe("Spotify device ID"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ positionMs, deviceId = null, userId, accessToken }) => {
+      try {
+        logger.debug('Seeking to position', { positionMs, deviceId });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.seekToPosition(positionMs, deviceId, userId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result || { success: true }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error seeking to position', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Set repeat mode tool
+  server.tool(
+    "set-repeat-mode",
+    "Set the repeat mode for the user's playback",
+    {
+      state: z.enum(['track', 'context', 'off']).describe("Repeat mode: 'track', 'context', or 'off'"),
+      deviceId: z.string().optional().describe("Spotify device ID"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ state, deviceId = null, userId, accessToken }) => {
+      try {
+        logger.debug('Setting repeat mode', { state, deviceId });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.setRepeatMode(state, deviceId, userId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result || { success: true }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error setting repeat mode', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Set playback volume tool
+  server.tool(
+    "set-playback-volume",
+    "Set the volume for the user's playback",
+    {
+      volumePercent: z.number().min(0).max(100).describe("Volume percentage (0-100)"),
+      deviceId: z.string().optional().describe("Spotify device ID"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ volumePercent, deviceId = null, userId, accessToken }) => {
+      try {
+        logger.debug('Setting playback volume', { volumePercent, deviceId });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.setPlaybackVolume(volumePercent, deviceId, userId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result || { success: true }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error setting playback volume', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Toggle playback shuffle tool
+  server.tool(
+    "toggle-playback-shuffle",
+    "Toggle shuffle mode for the user's playback",
+    {
+      state: z.boolean().describe("Shuffle state (true or false)"),
+      deviceId: z.string().optional().describe("Spotify device ID"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ state, deviceId = null, userId, accessToken }) => {
+      try {
+        logger.debug('Toggling playback shuffle', { state, deviceId });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+        });
+        
+        const result = await spotifyClient.togglePlaybackShuffle(state, deviceId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result || { success: true }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error toggling playback shuffle', { error: error.message });
         return {
           content: [
             {

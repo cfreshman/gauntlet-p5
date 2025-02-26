@@ -152,15 +152,31 @@ class AipiLayerClient {
   /**
    * Get the client for a specific tool
    * @param {string} toolName - Name of the tool
-   * @returns {Client|null} - The client that has the tool, or null if not found
+   * @returns {Promise<Client|null>} - The client that has the tool, or null if not found
    */
-  getClientForTool(toolName) {
+  async getClientForTool(toolName) {
+    // Refresh tools first to ensure we have latest
+    await Promise.all(
+      Object.entries(this.layerServers).map(([layer]) => 
+        this.refreshTools(layer).catch(err => 
+          logger.error(`Error refreshing tools for ${layer}:`, err)
+        )
+      )
+    );
+
     const tool = this.findTool(toolName);
     if (!tool) {
       logger.warn(`No tool found with name: ${toolName}`);
       return null;
     }
-    return this.clients[tool.layer];
+
+    const client = this.clients[tool.layer];
+    if (!client) {
+      logger.warn(`No client found for layer: ${tool.layer}`);
+      return null;
+    }
+
+    return client;
   }
 
   /**
@@ -173,7 +189,7 @@ class AipiLayerClient {
     const { name: toolName } = params;
     logger.info(`AipiLayerClient.callTool ${toolName}`, params.arguments);
 
-    const client = this.getClientForTool(toolName);
+    const client = await this.getClientForTool(toolName);
     if (!client) {
       throw new Error(`No client found for tool: ${toolName}`);
     }
