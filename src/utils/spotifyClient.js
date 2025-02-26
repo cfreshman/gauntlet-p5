@@ -310,13 +310,13 @@ class SpotifyClient {
       const url = new URL(`https://api.spotify.com/v1${endpoint}`);
       Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
 
-      logger.debug('Making Spotify API request', { 
-        method, 
-        url: url.toString(),
-        userId,
-        hasToken: !!accessToken,
-        tokenStart: accessToken ? accessToken.substring(0, 10) + '...' : null
-      });
+      // logger.debug('Making Spotify API request', { 
+      //   method, 
+      //   url: url.toString(),
+      //   userId,
+      //   hasToken: !!accessToken,
+      //   tokenStart: accessToken ? accessToken.substring(0, 10) + '...' : null
+      // });
 
       // Make request
       const response = await fetch(url.toString(), {

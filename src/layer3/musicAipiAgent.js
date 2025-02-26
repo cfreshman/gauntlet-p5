@@ -100,13 +100,12 @@ function registerMusicAipiAgent(server, clients) {
 
 CAPABILITIES:
 - you can plan and execute multiple actions in parallel
-- you can use tool results to plan additional actions - you get ${maxTurns} turns maximum to complete a request
+- you can use tool results to plan additional actions - you get ${maxTurns} ROUNDS (not calls) maximum to complete a request
 - you can generate natural language responses
+- you don't ask for specific songs or artists. the user can describe what they want, and you can use tools to find it
 
 USER CONTEXT:
-- spotify user id: ${userId}
-- spotify access token: ${accessToken}
-- when calling tools that require userId or accessToken, use these values
+- spotify userId and accesToken parameters will be included automatically, you don't need to include them in your response
 
 RESPONSE FORMATS:
 
@@ -132,13 +131,24 @@ RULES:
 - all responses must be valid JSON
 - text responses must be lowercase, EXCEPT for proper nouns (e.g. artist names, album titles, song names, etc.) which should be capitalized
 - plan efficient parallel actions when possible
-- use exact parameter names from tool descriptions - for example, if a tool requires "artist", do not use "artist_name"
+- ALWAYS use EXACT parameter names from tool descriptions. for example:
+  - if a tool requires "artistName", do not use "artist". if a tool requires "artist", do not use "artistName". USE THE EXACT PARAMETER NAME FROM THE TOOL DESCRIPTION OUTPUT
+  - if a tool requires "trackName", do not use "track". if a tool requires "track", do not use "trackName"
+  - if a tool requires "uri", do not use "trackUri" or "spotify_uri". if a tool requires "trackUri" or "spotify_uri", do not use "uri"
 - ALWAYS provide required parameters for tools. for example, search-spotify requires "query" and "types" (either a string like "track" or an array like ["track", "artist"])
 - don't make up or guess parameter values
-- you should try to return Spotify artist/track/etc links - real ones from an API
+- DO NOT ASK THE USER FOR SPECIFIC THINGS TO PLAY. that is not the point of a chat interface
+- if you start playing a playlist or album, you should include the Spotify playlist/album links in your response
+- you should return Spotify artist/track/etc links - real ones from an API which converts from Last.fm links if necessary
+- when dealing with Last.fm content, ALWAYS use convert-lastfm-to-spotify tool first to get Spotify links
+- for any music actions (play, queue, etc), you MUST have Spotify URIs - get them through search-spotify or convert-lastfm-to-spotify
 - follow through till the end of a request. it may take multiple steps. you may have to search for a song and then play it, through separate APIs. e.g. search-spotify -> start-resume-playback
+- **DO NOT SEND LAST.FM LINKS TO THE USER, AND DO NOT MAKE UP SPOTIFY LINKS. USE THE LINK CONVERTER TOOL IN PARALLEL. INCORRECT LINKS WILL LEAD TO PAGE NOT FOUND**
+- AGAIN, CONVERT LAST.FM LINKS TO SPOTIFY LINKS USING THE LINK CONVERTER TOOL IN PARALLEL - YOU WILL NEED TO DO THIS IN A ROUND AT THE END
+- NOTE: DON'T USE THE ACTUAL LAST.FM LINK TO CONVERT. USE THE ARTIST NAME AND TRACK NAME AS DESCRIBED IN THE TOOL DESCRIPTION OUTPUT
+- if you don't make actual calls to the link converter tool, you will be penalized
 
-AVAILABLE TOOLS:
+AVAILABLE TOOLS (TOOL DESCRIPTION OUTPUT):
 ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
           }
         ];
@@ -156,7 +166,7 @@ ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`
         // Add current query with context
         agentMessages.push({
           role: 'user',
-          content: `${context ? context + "\n" : ""}${query}`
+          content: query,
         });
 
         let finalResponse = null;
