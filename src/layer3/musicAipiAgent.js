@@ -194,6 +194,8 @@ RESPONSE FORMATS:
 - avoid the similar tracks tool. it's buggy
 - sometimes the user just wants songs queued, not as a new playlist - be sure the user wants a playlist before creating one
 - AVOID THE SIMILAR TRACKS TOOL. IT'S BUGGY
+- fetch more than just 3 recently played songs if you're planning to use that for context
+- be smart and creative. for example, you can clear the queue by requesting the queue and then skipping that many songs (but make sure to use separate rounds - parallel calls wouldn't sequentically skip the songs)
 
 AVAILABLE TOOLS (TOOL DESCRIPTION OUTPUT):
 ${toolFormatter.formatAllToolsForLLM(normalizedTools)}`

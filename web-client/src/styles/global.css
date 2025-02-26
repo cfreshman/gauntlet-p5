@@ -81,7 +81,7 @@ input:focus, textarea:focus {
 
 input::placeholder, textarea::placeholder {
   color: var(--disabled-color);
-  opacity: 0.8;
+  /* opacity: 0.8; */
 }
 
 select {

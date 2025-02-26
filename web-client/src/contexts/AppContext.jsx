@@ -22,6 +22,7 @@ export const AppProvider = ({ children }) => {
   const retryCountRef = useRef(0);
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 1000;
+  const RECONNECT_INTERVAL = 5000;
 
   // Initialize WebSocket connection when auth changes
   useEffect(() => {
@@ -59,22 +60,26 @@ export const AppProvider = ({ children }) => {
         connectWebSocket();
       }, RETRY_DELAY);
     } else {
-      console.error('Max retries reached, showing error message');
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: [{
-          type: 'text',
-          text: 'connection error. please try again.'
-        }],
-        isError: true
-      }]);
+      console.error('Max immediate retries reached, switching to periodic retry');
       retryCountRef.current = 0;
+      // Start periodic reconnection attempts
+      retryTimeoutRef.current = setInterval(() => {
+        console.log('Attempting periodic reconnection...');
+        connectWebSocket();
+      }, RECONNECT_INTERVAL);
     }
   };
 
   // Initialize WebSocket connection
   const connectWebSocket = () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      // Clear any periodic retry interval if we're connected
+      if (retryTimeoutRef.current) {
+        clearInterval(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+      return;
+    }
 
     const auth = localStorage.getItem(AUTH_STORAGE_KEY);
     if (!auth) return;
@@ -89,7 +94,12 @@ export const AppProvider = ({ children }) => {
     wsRef.current.onopen = () => {
       console.log('WebSocket connection opened');
       setIsConnected(true);
-      retryCountRef.current = 0; // Reset retry count on successful connection
+      retryCountRef.current = 0;
+      // Clear any retry timers on successful connection
+      if (retryTimeoutRef.current) {
+        clearInterval(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
       // Clear any connection error messages
       setMessages(prev => prev.filter(m => !m.isError || !m.content.some(c => 
         c.text?.includes('connection error')
