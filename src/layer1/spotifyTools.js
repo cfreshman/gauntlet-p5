@@ -19,9 +19,9 @@ function registerSpotifyTools(server) {
   // Search tool
   server.tool(
     "search-spotify",
-    "Direct text search for items on Spotify. This is NOT a semantic/similarity search - it matches text exactly against track/artist names. For best results, use format 'track:songname artist:artistname'",
+    "Direct text search for items on Spotify. This performs exact text matching against track/artist/album names - it is NOT a semantic/similarity search and will not find 'similar' items. For best results with tracks, use format: track:songname artist:artistname",
     {
-      query: z.string().describe("Text to search for. Use 'track:' and 'artist:' prefixes for more precise results"),
+      query: z.string().describe("Text to search for. For tracks, use format: track:songname artist:artistname. This is an exact text match, not a semantic search"),
       types: z.union([
         z.string(),
         z.array(z.string())
@@ -159,22 +159,38 @@ function registerSpotifyTools(server) {
   // Targeted search tool
   server.tool(
     "search-spotify-targeted",
-    "Search for a specific item on Spotify with high precision. PREFER THIS OVER search-spotify when you need exactly one result (e.g., finding a specific track, artist, album, or playlist). Returns only the best match and uses less bandwidth than a broad search.",
+    "Precise text search for a specific item on Spotify. This performs exact text matching - it is NOT a semantic/similarity search and will not find 'similar' items. PREFER THIS OVER search-spotify when you need exactly one result (e.g., finding a specific track, artist, album, or playlist). Returns only the best exact text match. The type parameter is always required, even if the query includes a type: prefix.",
     {
-      query: z.string().describe("The search query. For best results, use qualifiers like track:, artist:, album:"),
-      type: z.enum(['track', 'artist', 'album', 'playlist']).describe("The type of item to search for"),
+      query: z.string().describe("The search query. For tracks, you can use format: track:songname artist:artistname, but the type parameter is still required. This is an exact text match, not a semantic search"),
+      type: z.enum(['track', 'artist', 'album', 'playlist']).describe("The type of item to search for. Required even if query includes a type: prefix"),
       market: z.string().optional().describe("Market code (ISO 3166-1 alpha-2)")
     },
     async ({ query, type, market = 'US' }) => {
       try {
-        // Add type qualifier if not present
-        if (!query.toLowerCase().includes(`${type}:`)) {
-          query = `${type}:${query}`;
+        // Format query properly based on type
+        let formattedQuery = query;
+        if (type === 'track') {
+          // Extract artist name if present
+          const artistMatch = query.match(/artist:([^:]+)/i);
+          const artist = artistMatch ? artistMatch[1].trim() : '';
+          
+          // Remove the artist: prefix from the query
+          let trackName = query.replace(/artist:[^:]+/i, '').trim();
+          
+          // Remove track: prefix if present
+          trackName = trackName.replace(/^track:/i, '').trim();
+          
+          // Build proper query
+          formattedQuery = `${trackName}${artist ? ` artist:"${artist}"` : ''}`;
+        } else {
+          // Remove any type: prefix
+          formattedQuery = formattedQuery.replace(new RegExp(`^${type}:`, 'i'), '').trim();
+          formattedQuery = `${type}:"${formattedQuery}"`;
         }
         
-        logger.debug('Targeted Spotify search', { query, type, market });
+        logger.debug('Targeted Spotify search', { query: formattedQuery, type, market });
         
-        const results = await spotifyClient.search(query, [type], 1, 0, market);
+        const results = await spotifyClient.search(formattedQuery, [type], 1, 0, market);
         if (!results) {
           return {
             content: [
@@ -690,7 +706,7 @@ function registerSpotifyTools(server) {
     "Add tracks to a playlist by their Spotify track URIs or IDs. Accepts either format: full URI (spotify:track:abc123) or just ID (abc123).",
     {
       playlistId: z.string().describe("The Spotify playlist ID (not URI)"),
-      trackUris: z.union([
+      uris: z.union([
         z.string(),
         z.array(z.string())
       ]).describe("Track URI(s) or ID(s) to add. Can be full URIs (spotify:track:abc123) or just IDs (abc123)"),
@@ -698,9 +714,9 @@ function registerSpotifyTools(server) {
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
-    async ({ playlistId, trackUris, position = null, userId, accessToken }) => {
+    async ({ playlistId, uris, position = null, userId, accessToken }) => {
       try {
-        logger.debug('Adding tracks to playlist on Spotify', { playlistId, trackUris, position });
+        logger.debug('Adding tracks to playlist on Spotify', { playlistId, uris, position });
         
         // Store token for this request
         spotifyClient.storeUserTokens(userId, {
@@ -709,10 +725,10 @@ function registerSpotifyTools(server) {
         });
 
         // Normalize to array
-        const uris = Array.isArray(trackUris) ? trackUris : [trackUris];
+        const uriArray = Array.isArray(uris) ? uris : [uris];
         
         // Validate URIs
-        const validatedUris = uris.map(uri => {
+        const validatedUris = uriArray.map(uri => {
           // If it's already a full URI, validate format
           if (uri.startsWith('spotify:track:')) {
             const id = uri.split(':')[2];

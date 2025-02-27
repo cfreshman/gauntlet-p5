@@ -13,10 +13,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod'; // Zod is used for schema validation in the MCP SDK
 
-// Import our layer-specific implementations
-import { Layer1Server } from './layer1Server.js';
-import { Layer2Server } from './layer2Server.js';
-import { Layer3Server } from './layer3Server.js';
+import AipiLayerServer from './AipiLayerServer.js';
+import AipiLayerClient from './AipiLayerClient.js';
+import layer1 from './layer1.js';
+import layer2 from './layer2.js';
+import layer3 from './layer3.js';
 
 // Export everything
 export {
@@ -28,5 +29,11 @@ export {
   // Layer implementations
   Layer1Server,
   Layer2Server,
-  Layer3Server
+  Layer3Server,
+
+  AipiLayerServer,
+  AipiLayerClient,
+  layer1,
+  layer2,
+  layer3
 }; 

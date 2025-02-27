@@ -1,5 +1,4 @@
 import AipiLayerServer from './AipiLayerServer.js';
-import { registerMusicCurationTools } from '../layer3/musicCurationTools.js';
 import { registerMusicAipiAgent } from '../layer3/musicAipiAgent.js';
 
 const layer3 = new AipiLayerServer({
@@ -8,7 +7,6 @@ const layer3 = new AipiLayerServer({
   wsPort: 3013,
   useOpenAI: true,
   tools: {
-    curation: registerMusicCurationTools,
     agent: (server, clients) => registerMusicAipiAgent(server, clients)
   },
   layerClients: {

@@ -9,7 +9,7 @@ import '../utils/punycode-hook.js';
 import { config } from 'dotenv';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { Layer1Server, Layer2Server, Layer3Server } from './index.js';
+import { AipiLayerServer } from './index.js';
 import logger from '../utils/logger.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
@@ -52,15 +52,17 @@ async function main() {
 async function runLayer1Demo() {
   logger.info('Initializing Layer 1 MCP Server');
   
-  const layer1Server = new Layer1Server({
+  const server = new AipiLayerServer({
     name: 'aipi-layer1-demo',
-    version: '1.0.0'
+    port: 3001,
+    wsPort: 3011,
+    tools: {}
   });
   
   const transport = new StdioServerTransport();
   
   logger.info('Connecting Layer 1 MCP Server to stdio transport');
-  await layer1Server.connect(transport);
+  await server.getServer().connect(transport);
   
   logger.info('Layer 1 MCP Server is running. Press Ctrl+C to exit.');
 }
@@ -71,20 +73,24 @@ async function runLayer1Demo() {
 async function runLayer2Demo() {
   logger.info('Initializing Layer 2 MCP Server');
   
-  // Define Layer 1 endpoint (would be used in a real distributed setup)
-  const layer1Endpoint = 'http://localhost:3001/mcp/events';
-  
-  // Initialize Layer 2 server with Layer 1 endpoint
-  const layer2Server = new Layer2Server({
+  const server = new AipiLayerServer({
     name: 'aipi-layer2-demo',
-    version: '1.0.0',
-    layer1Endpoint
+    port: 3002,
+    wsPort: 3012,
+    useOpenAI: true,
+    tools: {},
+    layerClients: {
+      layer1: {
+        port: 3001,
+        wsPort: 3011
+      }
+    }
   });
   
   const transport = new StdioServerTransport();
   
   logger.info('Connecting Layer 2 MCP Server to stdio transport');
-  await layer2Server.connect(transport);
+  await server.getServer().connect(transport);
   
   logger.info('Layer 2 MCP Server is running. Press Ctrl+C to exit.');
 }
@@ -95,22 +101,28 @@ async function runLayer2Demo() {
 async function runLayer3Demo() {
   logger.info('Initializing Layer 3 MCP Server');
   
-  // Define Layer 1 and Layer 2 endpoints (would be used in a real distributed setup)
-  const layer1Endpoint = 'http://localhost:3001/mcp/events';
-  const layer2Endpoint = 'http://localhost:3002/mcp/events';
-  
-  // Initialize Layer 3 server with Layer 2 and Layer 1 endpoints
-  const layer3Server = new Layer3Server({
+  const server = new AipiLayerServer({
     name: 'aipi-layer3-demo',
-    version: '1.0.0',
-    layer2Endpoint,
-    layer1Endpoint
+    port: 3003,
+    wsPort: 3013,
+    useOpenAI: true,
+    tools: {},
+    layerClients: {
+      layer2: {
+        port: 3002,
+        wsPort: 3012
+      },
+      layer1: {
+        port: 3001,
+        wsPort: 3011
+      }
+    }
   });
   
   const transport = new StdioServerTransport();
   
   logger.info('Connecting Layer 3 MCP Server to stdio transport');
-  await layer3Server.connect(transport);
+  await server.getServer().connect(transport);
   
   logger.info('Layer 3 MCP Server is running. Press Ctrl+C to exit.');
 }

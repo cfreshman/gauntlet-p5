@@ -97,49 +97,6 @@ class LastfmClient {
     }
   }
 
-  /**
-   * Get tracks similar to a specified track
-   * @param {string} track - The track name to fetch similar tracks for
-   * @param {string} artist - The artist name to fetch similar tracks for
-   * @param {number} [limit=100] - Maximum number of similar tracks to return (max 100)
-   * @param {number} [autocorrect=1] - Transform misspelled artist/track names into correct names
-   * @returns {Promise<Object>} Similar tracks response
-   */
-  async getSimilarTracks(track, artist, limit = 100, autocorrect = 1) {
-    if (!track || !artist) {
-      throw new Error('Track name and artist name are required');
-    }
-
-    // Clean up track and artist names
-    const cleanTrack = track.trim();
-    const cleanArtist = artist.trim();
-
-    if (cleanTrack.length === 0 || cleanArtist.length === 0) {
-      throw new Error('Track name and artist name cannot be empty');
-    }
-
-    // Validate limit
-    if (limit < 1 || limit > 100) {
-      throw new Error('Limit must be between 1 and 100');
-    }
-
-    // Validate autocorrect
-    if (autocorrect !== 0 && autocorrect !== 1) {
-      throw new Error('Autocorrect must be 0 or 1');
-    }
-
-    const response = await this.makeRequest({
-      method: 'track.getSimilar',
-      track: cleanTrack,
-      artist: cleanArtist,
-      limit,
-      autocorrect
-    });
-
-    // Return the raw response to allow error handling at the tool level
-    return response;
-  }
-
   async getSimilarArtists(artist, limit = 20) {
     return this.makeRequest({
       method: 'artist.getSimilar',
@@ -176,12 +133,13 @@ class LastfmClient {
 
   /**
    * Search for tracks on Last.fm
-   * @param {string} query - Search query
+   * @param {string} query - Track name to search for
+   * @param {string} [artist] - Optional artist name to narrow search
    * @param {number} [limit=30] - Maximum number of results
    * @param {number} [page=1] - Page number
    * @returns {Promise<Object>} Search results
    */
-  async searchTracks(query, limit = 30, page = 1) {
+  async searchTracks(query, artist, limit = 30, page = 1) {
     try {
       const params = {
         method: 'track.search',
@@ -189,6 +147,11 @@ class LastfmClient {
         limit,
         page
       };
+
+      // Add artist parameter if provided
+      if (artist) {
+        params.artist = artist;
+      }
       
       return await this.makeRequest(params);
     } catch (error) {
@@ -225,13 +188,6 @@ class LastfmClient {
     });
   }
 
-  async getTagSimilar(tag) {
-    return this.makeRequest({
-      method: 'tag.getSimilar',
-      tag
-    });
-  }
-
   async getTagTopArtists(tag, limit = 50) {
     return this.makeRequest({
       method: 'tag.getTopArtists',
@@ -246,6 +202,24 @@ class LastfmClient {
       tag,
       limit
     });
+  }
+
+  /**
+   * Get the most popular tags on Last.fm
+   * @param {number} [limit=50] - Maximum number of tags to return
+   * @returns {Promise<Object>} Top tags
+   */
+  async getTopTags(limit = 50) {
+    try {
+      const params = {
+        method: 'tag.getTopTags',
+        limit
+      };
+      
+      return await this.makeRequest(params);
+    } catch (error) {
+      throw new Error(`Failed to get top tags: ${error.message}`);
+    }
   }
 }
 

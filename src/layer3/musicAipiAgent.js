@@ -127,14 +127,15 @@ RESPONSE FORMATS:
 1. when you need to execute actions:
 {
   "type": "actions",
-  "thinking": "your thinking about the actions you'll take - this will be shown to the user",
+  "thinking": "your thinking about the actions you'll take - this will be shown to the user, don't reveal errors",
   "actions": [
     {
       "tool": "name",
       "args": { "param": value }
     },
     ... more actions ...
-  ]
+  ],
+  "next_model": "model_name"
 }
 
 2. when you want to return a final response to the user:
@@ -142,6 +143,14 @@ RESPONSE FORMATS:
   "type": "response",
   "text": "your final response to the user's query"
 }
+
+MODEL SELECTION:
+For next_model, choose one of:
+- "gpt-4o-mini": For simple follow-ups, basic queries, quick responses
+- "gpt-4o": For standard tasks, normal reasoning, most music operations
+- "o3-mini": For complex analysis, critical accuracy, deep music understanding, track selection after search
+
+Always select the simplest model that can adequately handle the expected next task.
 
 all responses must be valid JSON
 
@@ -155,8 +164,19 @@ TIPS:
 - be creative
 - you're able to recover from most errors without telling the user. there are many workarounds or resolutions you can try
 - don't add songs to playlists you didn't create - tell the user you're unable to do that if they ask
-- if you create a new playlist with too few songs i will kill you
-- Last.fm and Spotify have different resource IDs. you have to convert between them`
+- if you create a new playlist with too few songs i will kill you. if you don't have enough songs (30+) go back for more. try different tool paths
+- Last.fm and Spotify have different resource IDs. you have to convert between them
+- AGAIN, IF YOU GET ERRORS, DON'T TELL THE USER. DON'T REVEAL IT IN YOUR THINKING. TRY A DIFFERENT WAY
+- make sure you actually add the songs to the playlist
+- when going for similarity, don't reuse the source songs in the output
+- when you receive many results for song searches or whatever, YOU SHOULD CONTINUE TO USE ALL OF THEM. more songs is better for the human. e.g. use ALL of the artists top songs. just make sure to shuffle artist songs together to avoid runs of the same artist within a playlist (when creating a mixed playlist)
+- MAKE SURE TO CONVERT LASTFM TRACKS TO SPOTIFY TRACKS BEFORE ADDING URIS
+- if you don't have enough songs, try getting top tags for the source songs and searching for tracks/artists/albums by those tags
+- if you have enough tracks (over 30), you can vary which tracks you select so you don't always pick the same tracks per artist or whatever
+- use Last.fm tag search to your advantage
+- be creative with naming
+- be creative with song ordering. if you put a playlist in order by artist I WILL KILL YOU
+- use markdown responses. don't return naked links`
           }
         ];
 
@@ -178,13 +198,15 @@ TIPS:
 
         let finalResponse = null;
         let turn = 0;
+        let currentModel = "gpt-4o"; // Default for first turn
+        let wasDefaultModel = true;
 
         while (!finalResponse && turn < maxTurns) {
           turn++;
-          logger.info(`Agent turn ${turn}/${maxTurns}`);
+          logger.info(`Agent turn ${turn}/${maxTurns} using model ${currentModel} ${wasDefaultModel ? '(default)' : '(selected)'}`);
 
           const llmResponse = await openai.chat.completions.create({
-            model: "gpt-4o",
+            model: currentModel,
             messages: agentMessages,
             response_format: { type: "json_object" }
           });
@@ -196,6 +218,10 @@ TIPS:
           });
 
           const agentAction = JSON.parse(llmResponse.choices[0].message.content);
+
+          // Update model for next turn if specified
+          currentModel = agentAction.next_model || "gpt-4o";
+          wasDefaultModel = !agentAction.next_model;
 
           if (agentAction.type === 'response') {
             finalResponse = {
