@@ -154,6 +154,11 @@ export const useSpotifyApi = () => {
       }),
       getContextInfo: (type, uri) => makeRequest({
         url: `/api/${type}s/${uri.split(':').pop()}`
+      }),
+      transfer: (options) => makeRequest({
+        url: '/api/playback/transfer',
+        method: 'POST',
+        body: options
       })
     }
   };

@@ -5,6 +5,8 @@ import { useSpotifyApi } from '../hooks/useSpotifyApi';
 const PlaybackContext = createContext(null);
 
 const POLLING_INTERVAL = 1000; // Poll every 1 second
+const SPOTIFY_SDK_URL = 'https://sdk.scdn.co/spotify-player.js';
+const AUTH_STORAGE_KEY = 'music-aipi-auth';
 
 export const PlaybackProvider = ({ children }) => {
   const { isAuthenticated } = useApp();
@@ -15,6 +17,91 @@ export const PlaybackProvider = ({ children }) => {
   const [playerExpanded, setPlayerExpanded] = useState(false);
   const pollingIntervalRef = useRef(null);
   const lastFetchRef = useRef(0);
+  const playerRef = useRef(null);
+
+  // Load Spotify SDK Script
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Only load script if it hasn't been loaded
+    if (!document.getElementById('spotify-player-script')) {
+      const script = document.createElement('script');
+      script.id = 'spotify-player-script';
+      script.src = SPOTIFY_SDK_URL;
+      script.async = true;
+
+      // Initialize player when script loads
+      window.onSpotifyWebPlaybackSDKReady = () => {
+        const player = new window.Spotify.Player({
+          name: 'music-AIPI',
+          getOAuthToken: async cb => {
+            try {
+              // Get auth data from storage
+              const authData = localStorage.getItem(AUTH_STORAGE_KEY);
+              if (!authData) {
+                console.error('No auth data found');
+                return;
+              }
+
+              const { userId, accessToken, refreshToken, expirationTime } = JSON.parse(authData);
+              const response = await fetch('/api/spotify/token', {
+                headers: {
+                  'Authorization': `Bearer ${userId}:${accessToken}:${refreshToken}:${expirationTime}`
+                }
+              });
+
+              if (!response.ok) {
+                throw new Error('Failed to refresh token');
+              }
+
+              const data = await response.json();
+              cb(data.token);
+            } catch (err) {
+              console.error('Error getting token for SDK:', err);
+            }
+          }
+        });
+
+        // Error handling
+        player.addListener('initialization_error', ({ message }) => {
+          console.error('Failed to initialize player:', message);
+        });
+        player.addListener('authentication_error', ({ message }) => {
+          console.error('Failed to authenticate:', message);
+        });
+        player.addListener('account_error', ({ message }) => {
+          console.error('Failed to validate Spotify account:', message);
+        });
+        player.addListener('playback_error', ({ message }) => {
+          console.error('Failed to perform playback:', message);
+        });
+
+        // Ready listener
+        player.addListener('ready', ({ device_id }) => {
+          console.log('Web Playback SDK ready with device ID:', device_id);
+          // Fetch devices to include our new device
+          fetchPlaybackData();
+        });
+
+        // Not ready listener
+        player.addListener('not_ready', ({ device_id }) => {
+          console.log('Web Playback SDK device became not ready:', device_id);
+        });
+
+        // Connect to the player
+        player.connect();
+        playerRef.current = player;
+      };
+
+      document.body.appendChild(script);
+    }
+
+    return () => {
+      if (playerRef.current) {
+        playerRef.current.disconnect();
+      }
+    };
+  }, [isAuthenticated]);
 
   // Keep apiRef current
   useEffect(() => {
@@ -131,6 +218,9 @@ export const PlaybackProvider = ({ children }) => {
           break;
         case 'queue':
           await apiRef.current.playback.addToQueue(params.uri, device_id);
+          break;
+        case 'transfer':
+          await apiRef.current.playback.transfer({ deviceId: normalizedParams.device_id });
           break;
       }
 

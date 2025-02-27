@@ -169,6 +169,7 @@
 
 .send-button:disabled {
   opacity: 0.3;
+  cursor: default;
 }
 
 .send-button.loading {
