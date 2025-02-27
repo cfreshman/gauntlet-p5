@@ -187,19 +187,28 @@ function registerLastFmTools(server) {
     {
       track: z.string().describe("Track name"),
       artist: z.string().describe("Artist name"),
-      autocorrect: z.number().min(0).max(1).optional().describe("Whether to autocorrect names")
+      limit: z.number().min(1).max(100).optional().describe("Maximum number of tags to return")
     },
-    async ({ track, artist, autocorrect }) => {
+    async ({ track, artist, limit = 50 }) => {
       try {
-        logger.debug('Getting track top tags from Last.fm', { track, artist });
+        logger.debug('Getting track top tags from Last.fm', { track, artist, limit });
         
-        const results = await lastfmClient.getTrackTopTags(track, artist, autocorrect);
+        const results = await lastfmClient.getTrackTopTags(track, artist, limit);
         
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(results, null, 2)
+              text: JSON.stringify({
+                error: false,
+                track,
+                artist,
+                tags: results.toptags?.tag?.map(t => ({
+                  name: t.name,
+                  count: parseInt(t.count, 10)
+                })) || [],
+                totalResults: results.toptags?.tag?.length || 0
+              })
             }
           ]
         };
@@ -209,7 +218,10 @@ function registerLastFmTools(server) {
           content: [
             {
               type: "text",
-              text: `Error: ${error.message}`
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
             }
           ],
           isError: true
@@ -489,7 +501,7 @@ function registerLastFmTools(server) {
   // Get top tags tool
   server.tool(
     "get-top-tags",
-    "Get the most popular tags/genres on Last.fm. Useful for discovering available music categories and genres.",
+    "Get overall top tags on Last.fm",
     {
       limit: z.number().min(1).max(100).optional().describe("Maximum number of tags to return")
     },
@@ -499,22 +511,15 @@ function registerLastFmTools(server) {
         
         const results = await lastfmClient.getTopTags(limit);
         
-        // Process response to include only essential tag info
-        const tags = results.toptags?.tag?.map(t => ({
-          name: t.name,
-          count: parseInt(t.count || t.reach || 0, 10),
-          url: t.url
-        })) || [];
-
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify({
                 error: false,
-                tags,
-                totalResults: tags.length
-              }, null, 2)
+                tags: results.toptags?.tag?.map(t => t.name) || [],
+                totalResults: results.toptags?.tag?.length || 0
+              })
             }
           ]
         };
@@ -526,8 +531,262 @@ function registerLastFmTools(server) {
               type: "text",
               text: JSON.stringify({
                 error: true,
-                message: error.message,
-                tags: []
+                message: error.message
+              })
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+
+  // Get artist top tags tool
+  server.tool(
+    "get-artist-top-tags",
+    "Get the top tags for an artist from Last.fm",
+    {
+      artist: z.string().describe("The artist name"),
+      limit: z.number().min(1).max(100).optional().describe("Maximum number of tags to return")
+    },
+    async ({ artist, limit = 50 }) => {
+      try {
+        logger.debug('Getting artist top tags from Last.fm', { artist, limit });
+        
+        const results = await lastfmClient.getArtistTopTags(artist, limit);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: false,
+                artist,
+                tags: results.toptags?.tag?.map(t => ({
+                  name: t.name,
+                  count: parseInt(t.count, 10)
+                })) || [],
+                totalResults: results.toptags?.tag?.length || 0
+              })
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error getting artist top tags from Last.fm', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+
+  // Get track info tool
+  server.tool(
+    "get-track-info",
+    "Get detailed information about a track from Last.fm",
+    {
+      track: z.string().describe("Track name"),
+      artist: z.string().describe("Artist name")
+    },
+    async ({ track, artist }) => {
+      try {
+        logger.debug('Getting track info from Last.fm', { track, artist });
+        
+        const results = await lastfmClient.getTrackInfo(track, artist);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: false,
+                track: {
+                  name: results.track.name,
+                  artist: results.track.artist.name,
+                  album: results.track.album?.title,
+                  duration: parseInt(results.track.duration, 10),
+                  listeners: parseInt(results.track.listeners, 10),
+                  playcount: parseInt(results.track.playcount, 10),
+                  tags: results.track.toptags?.tag?.map(t => t.name) || [],
+                  wiki: results.track.wiki?.summary
+                }
+              })
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error getting track info from Last.fm', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+
+  // Get album info tool
+  server.tool(
+    "get-album-info",
+    "Get detailed information about an album from Last.fm",
+    {
+      album: z.string().describe("Album name"),
+      artist: z.string().describe("Artist name")
+    },
+    async ({ album, artist }) => {
+      try {
+        logger.debug('Getting album info from Last.fm', { album, artist });
+        
+        const results = await lastfmClient.getAlbumInfo(album, artist);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: false,
+                album: {
+                  name: results.album.name,
+                  artist: results.album.artist,
+                  tracks: results.album.tracks?.track?.map(t => ({
+                    name: t.name,
+                    duration: parseInt(t.duration, 10)
+                  })) || [],
+                  listeners: parseInt(results.album.listeners, 10),
+                  playcount: parseInt(results.album.playcount, 10),
+                  tags: results.album.tags?.tag?.map(t => t.name) || [],
+                  wiki: results.album.wiki?.summary
+                }
+              })
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error getting album info from Last.fm', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+
+  // Get album top tags tool
+  server.tool(
+    "get-album-top-tags",
+    "Get the top tags for an album from Last.fm",
+    {
+      album: z.string().describe("Album name"),
+      artist: z.string().describe("Artist name"),
+      limit: z.number().min(1).max(100).optional().describe("Maximum number of tags to return")
+    },
+    async ({ album, artist, limit = 50 }) => {
+      try {
+        logger.debug('Getting album top tags from Last.fm', { album, artist, limit });
+        
+        const results = await lastfmClient.getAlbumTopTags(album, artist, limit);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: false,
+                album,
+                artist,
+                tags: results.toptags?.tag?.map(t => ({
+                  name: t.name,
+                  count: parseInt(t.count, 10)
+                })) || [],
+                totalResults: results.toptags?.tag?.length || 0
+              })
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error getting album top tags from Last.fm', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: true,
+                message: error.message
+              })
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+
+  // Get tag info tool
+  server.tool(
+    "get-tag-info",
+    "Get detailed information about a tag/genre from Last.fm",
+    {
+      tag: z.string().describe("The tag name")
+    },
+    async ({ tag }) => {
+      try {
+        logger.debug('Getting tag info from Last.fm', { tag });
+        
+        const results = await lastfmClient.getTagInfo(tag);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: false,
+                tag: {
+                  name: results.tag.name,
+                  reach: parseInt(results.tag.reach, 10),
+                  total: {
+                    tracks: parseInt(results.tag.total?.tracks, 10),
+                    artists: parseInt(results.tag.total?.artists, 10),
+                    albums: parseInt(results.tag.total?.albums, 10)
+                  },
+                  wiki: results.tag.wiki?.summary
+                }
+              })
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error getting tag info from Last.fm', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: true,
+                message: error.message
               })
             }
           ],

@@ -166,19 +166,14 @@ class LastfmClient {
    * @param {number} [autocorrect=1] - Whether to autocorrect names
    * @returns {Promise<Object>} Track tags
    */
-  async getTrackTopTags(track, artist, autocorrect = 1) {
-    try {
-      const params = {
-        method: 'track.getTopTags',
-        track,
-        artist,
-        autocorrect
-      };
-      
-      return await this.makeRequest(params);
-    } catch (error) {
-      throw new Error(`Failed to get track tags: ${error.message}`);
-    }
+  async getTrackTopTags(track, artist, limit = 50) {
+    const params = {
+      method: 'track.getTopTags',
+      track,
+      artist,
+      limit
+    };
+    return this.makeRequest(params);
   }
 
   async getChartTopTracks(limit = 50) {
@@ -220,6 +215,54 @@ class LastfmClient {
     } catch (error) {
       throw new Error(`Failed to get top tags: ${error.message}`);
     }
+  }
+
+  async getArtistTopTags(artist, limit = 50) {
+    const params = {
+      method: 'artist.getTopTags',
+      artist,
+      limit
+    };
+    return this.makeRequest(params);
+  }
+
+  async getTrackInfo(track, artist) {
+    const params = {
+      method: 'track.getInfo',
+      track,
+      artist,
+      autocorrect: 1
+    };
+    return this.makeRequest(params);
+  }
+
+  async getAlbumInfo(album, artist) {
+    const params = {
+      method: 'album.getInfo',
+      album,
+      artist,
+      autocorrect: 1
+    };
+    return this.makeRequest(params);
+  }
+
+  async getAlbumTopTags(album, artist, limit = 50) {
+    const params = {
+      method: 'album.getTopTags',
+      album,
+      artist,
+      limit,
+      autocorrect: 1
+    };
+    return this.makeRequest(params);
+  }
+
+  async getTagInfo(tag) {
+    const params = {
+      method: 'tag.getInfo',
+      tag
+    };
+    return this.makeRequest(params);
   }
 }
 

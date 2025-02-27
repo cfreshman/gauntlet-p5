@@ -11,10 +11,16 @@ import { z } from 'zod';
 import toolFormatter from '../utils/tool-formatter.js';
 import { ThinkingSendClient } from '../utils/thinking-client.js';
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// Lazy OpenAI client initialization
+let openai = null;
+const getOpenAI = () => {
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+  }
+  return openai;
+};
 
 // Map to store thinking clients by session ID
 const thinkingClients = new Map();
@@ -127,7 +133,7 @@ RESPONSE FORMATS:
 1. when you need to execute actions:
 {
   "type": "actions",
-  "thinking": "your thinking about the actions you'll take - this will be shown to the user, don't reveal errors",
+  "thinking": "your thinking about the actions you'll take - this will be shown to the user, don't reveal errors or debug info",
   "actions": [
     {
       "tool": "name",
@@ -148,7 +154,7 @@ MODEL SELECTION:
 For next_model, choose one of:
 - "gpt-4o-mini": For simple follow-ups, basic queries, quick responses
 - "gpt-4o": For standard tasks, normal reasoning, most music operations
-- "o3-mini": For complex analysis, critical accuracy, deep music understanding, track selection after search
+- "o3-mini": For complex analysis, critical accuracy, deep music understanding, processing search results
 
 Always select the simplest model that can adequately handle the expected next task.
 
@@ -176,7 +182,25 @@ TIPS:
 - use Last.fm tag search to your advantage
 - be creative with naming
 - be creative with song ordering. if you put a playlist in order by artist I WILL KILL YOU
-- use markdown responses. don't return naked links`
+- use markdown responses. don't return naked links
+- not all tags are genres, not all are moods, etc. you may need to request more tags and filter down
+- while it's nice to return links, remember that you can queue or create a playlist for the user too. if they want that. not a text-based response, i mean using actual tools
+- prefer searching a user's recent playlists and reading those tracks over just their recent listening history. if you're unsure which playlists to use, you can offer them selection from their playlists (by fetching first)
+- AGAIN, TO PROVIDE RECS BASED ON A USER'S LISTENING PREFERENCES, DO NOT ONLY USE RECENT HISTORY. IT IS LIKELY INACCURATE ORR INCOMPLETE
+- if the user asks for recs and you just look at their recent history I WILL KILL YOU
+- DO NOT MAKE UP SONG LISTS OR LINKS OR URIS. use the available query/discovery/utility tools
+- if you think you need more thinking power to complete the current task, just skip the turn by returning an empty actions array
+- the currently playing track shouldn't factor into recommendations unless the user asks for it
+- you can't understand the user's music just from their playlist titles. you need to actually inspect the tracks and get track tags, etc
+- if the user asks what you can do, talk in broad strokes. don't return specific tools and completely avoid internal utilities
+- current playlist means the active playback on spotify
+- remember to use data from previous turns - as this gets more complex, you may need a smarter model
+- remember you can search for multiple tags or whatever and combine results
+- don't tell the user to "enjoy listening!" after returning a plain list of content. you can suggest adding to queue or playlist
+
+YOUR MAIN TASK IN THE FIRST TURN IS TO CREATE A PLAN ON HOW TO SATISFY THE USER REQUEST (unless the user is just chatting)
+COMPLETE YOUR GOAL. DO NOT RETURN PARTIAL RESULTS. e.g. A PLAYLIST MUST HAVE ALL 30+ SONGS ADDED
+**FINAL WORD: DO THINGS THE HUMAN WILL LIKE**`
           }
         ];
 
@@ -205,11 +229,22 @@ TIPS:
           turn++;
           logger.info(`Agent turn ${turn}/${maxTurns} using model ${currentModel} ${wasDefaultModel ? '(default)' : '(selected)'}`);
 
-          const llmResponse = await openai.chat.completions.create({
-            model: currentModel,
-            messages: agentMessages,
-            response_format: { type: "json_object" }
-          });
+          let llmResponse;
+          try {
+            llmResponse = await getOpenAI().chat.completions.create({
+              model: currentModel,
+              messages: agentMessages,
+              response_format: { type: "json_object" }
+            });
+          } catch (error) {
+            logger.error('OpenAI API error:', error);
+            return {
+              type: 'actions',
+              thinking: "i'm sorry, i encountered an error while thinking about your request. please wait a moment.",
+              actions: [],
+              next_model: "gpt-4o"
+            };
+          }
 
           // Add assistant's response to history
           agentMessages.push({

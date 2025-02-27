@@ -20,7 +20,6 @@
     "mcp:test-all": "node --no-deprecation src/mcp/test-all.js",
     "music-discovery": "node --no-deprecation src/cli/music-discovery-cli.js",
     "music-chat": "node --no-deprecation src/chat/music-discovery-chat.js",
-    "test:message-processor": "node --no-deprecation src/chat/test-message-processor.js",
     "web:dev": "cd web-client && npm run dev",
     "web:build": "cd web-client && npm run build",
     "web:serve": "cd web-client && npm run serve",

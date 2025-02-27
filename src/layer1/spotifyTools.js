@@ -355,27 +355,27 @@ function registerSpotifyTools(server) {
     "convert-lastfm-to-spotify",
     "Convert Last.fm links to Spotify links",
     {
-      artistName: z.string().describe("The name of the artist"),
-      trackName: z.string().optional().describe("The name of the track (optional)")
+      artist: z.string().describe("The name of the artist"),
+      track: z.string().optional().describe("The name of the track (optional)")
     },
-    async ({ artistName, trackName }) => {
+    async ({ artist, track }) => {
       try {
-        logger.info('Converting Last.fm to Spotify', { artistName, trackName });
+        logger.info('Converting Last.fm to Spotify', { artist, track });
         
         // Use search to find the artist/track
-        let searchQuery = artistName;
-        if (trackName) {
-          searchQuery = `${trackName} artist:${artistName}`;
+        let searchQuery = artist;
+        if (track) {
+          searchQuery = `${track} artist:${artist}`;
         }
         
-        const types = trackName ? ['track'] : ['artist'];
+        const types = track ? ['track'] : ['artist'];
         const results = await spotifyClient.search(searchQuery, types, 1);
         
         // Extract the Spotify URL from the search result
         let spotifyUrl = null;
         let spotifyData = null;
         
-        if (trackName && results.tracks && results.tracks.items && results.tracks.items.length > 0) {
+        if (track && results.tracks && results.tracks.items && results.tracks.items.length > 0) {
           spotifyUrl = results.tracks.items[0].external_urls.spotify;
           spotifyData = results.tracks.items[0];
         } else if (results.artists && results.artists.items && results.artists.items.length > 0) {
@@ -389,8 +389,8 @@ function registerSpotifyTools(server) {
               type: "text",
               text: JSON.stringify({
                 lastfm: {
-                  artist: artistName,
-                  track: trackName || null
+                  artist: artist,
+                  track: track || null
                 },
                 spotify: {
                   url: spotifyUrl,
@@ -408,8 +408,8 @@ function registerSpotifyTools(server) {
               type: "text",
               text: JSON.stringify({
                 lastfm: {
-                  artist: artistName,
-                  track: trackName || null
+                  artist: artist,
+                  track: track || null
                 },
                 spotify: {
                   url: null,
@@ -706,7 +706,7 @@ function registerSpotifyTools(server) {
     "Add tracks to a playlist by their Spotify track URIs or IDs. Accepts either format: full URI (spotify:track:abc123) or just ID (abc123).",
     {
       playlistId: z.string().describe("The Spotify playlist ID (not URI)"),
-      uris: z.union([
+      tracks: z.union([
         z.string(),
         z.array(z.string())
       ]).describe("Track URI(s) or ID(s) to add. Can be full URIs (spotify:track:abc123) or just IDs (abc123)"),
@@ -714,9 +714,9 @@ function registerSpotifyTools(server) {
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
-    async ({ playlistId, uris, position = null, userId, accessToken }) => {
+    async ({ playlistId, tracks, position = null, userId, accessToken }) => {
       try {
-        logger.debug('Adding tracks to playlist on Spotify', { playlistId, uris, position });
+        logger.debug('Adding tracks to playlist on Spotify', { playlistId, tracks, position });
         
         // Store token for this request
         spotifyClient.storeUserTokens(userId, {
@@ -725,7 +725,7 @@ function registerSpotifyTools(server) {
         });
 
         // Normalize to array
-        const uriArray = Array.isArray(uris) ? uris : [uris];
+        const uriArray = Array.isArray(tracks) ? tracks : [tracks];
         
         // Validate URIs
         const validatedUris = uriArray.map(uri => {
