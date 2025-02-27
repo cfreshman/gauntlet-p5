@@ -488,15 +488,15 @@ function registerSpotifyTools(server) {
     "get-playlist",
     "Get playlist details by exact Spotify playlist ID. Returns metadata and tracks in the playlist.",
     {
-      playlistId: z.string().describe("The Spotify playlist ID (not URI)"),
+      playlist: z.string().describe("The Spotify playlist ID (not URI)"),
       fields: z.string().optional().describe("Comma-separated list of fields to return"),
       market: z.string().optional().describe("Market code (ISO 3166-1 alpha-2)"),
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
-    async ({ playlistId, fields = null, market = null, userId, accessToken }) => {
+    async ({ playlist, fields = null, market = null, userId, accessToken }) => {
       try {
-        logger.debug('Getting playlist from Spotify', { playlistId, fields, market });
+        logger.debug('Getting playlist from Spotify', { playlist, fields, market });
         
         // Store token for this request
         spotifyClient.storeUserTokens(userId, {
@@ -504,21 +504,21 @@ function registerSpotifyTools(server) {
           expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
         });
         
-        const playlist = await spotifyClient.getPlaylist(playlistId, fields, market, userId);
+        const result = await spotifyClient.getPlaylist(playlist, fields, market, userId);
         
         // Process playlist to only include essential fields
         const processed = {
-          name: playlist.name,
-          uri: playlist.uri,
-          href: playlist.external_urls.spotify,
-          description: playlist.description,
+          name: result.name,
+          uri: result.uri,
+          href: result.external_urls.spotify,
+          description: result.description,
           owner: {
-            id: playlist.owner.id,
-            name: playlist.owner.display_name
+            id: result.owner.id,
+            name: result.owner.display_name
           },
           tracks: {
-            total: playlist.tracks.total,
-            items: playlist.tracks.items?.map(item => ({
+            total: result.tracks.total,
+            items: result.tracks.items?.map(item => ({
               added_at: item.added_at,
               track: {
                 name: item.track.name,
@@ -570,16 +570,16 @@ function registerSpotifyTools(server) {
     "get-playlist-tracks",
     "Get tracks in a playlist",
     {
-      playlistId: z.string(),
-      limit: z.number().min(1).max(100).optional(),
-      offset: z.number().min(0).optional(),
-      market: z.string().optional(),
+      playlist: z.string().describe("The Spotify playlist ID (not URI)"),
+      limit: z.number().min(1).max(100).optional().describe("Maximum number of tracks to return"),
+      offset: z.number().min(0).optional().describe("Offset for pagination"),
+      market: z.string().optional().describe("Market code (ISO 3166-1 alpha-2)"),
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
-    async ({ playlistId, limit = 20, offset = 0, market = null, userId, accessToken }) => {
+    async ({ playlist, limit = 20, offset = 0, market = null, userId, accessToken }) => {
       try {
-        logger.debug('Getting playlist tracks from Spotify', { playlistId, limit, offset, market });
+        logger.debug('Getting playlist tracks from Spotify', { playlist, limit, offset, market });
         
         // Store token for this request
         spotifyClient.storeUserTokens(userId, {
@@ -587,7 +587,7 @@ function registerSpotifyTools(server) {
           expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
         });
         
-        const tracks = await spotifyClient.getPlaylistTracks(playlistId, limit, offset, market, userId);
+        const tracks = await spotifyClient.getPlaylistTracks(playlist, limit, offset, market, userId);
         
         // Process tracks to only include essential fields
         const processed = {
@@ -705,7 +705,7 @@ function registerSpotifyTools(server) {
     "add-tracks-to-playlist",
     "Add tracks to a playlist by their Spotify track URIs or IDs. Accepts either format: full URI (spotify:track:abc123) or just ID (abc123).",
     {
-      playlistId: z.string().describe("The Spotify playlist ID (not URI)"),
+      playlist: z.string().describe("The Spotify playlist ID (not URI)"),
       tracks: z.union([
         z.string(),
         z.array(z.string())
@@ -714,9 +714,9 @@ function registerSpotifyTools(server) {
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
-    async ({ playlistId, tracks, position = null, userId, accessToken }) => {
+    async ({ playlist, tracks, position = null, userId, accessToken }) => {
       try {
-        logger.debug('Adding tracks to playlist on Spotify', { playlistId, tracks, position });
+        logger.debug('Adding tracks to playlist on Spotify', { playlist, tracks, position });
         
         // Store token for this request
         spotifyClient.storeUserTokens(userId, {
@@ -746,7 +746,7 @@ function registerSpotifyTools(server) {
           throw new Error(`Invalid Spotify track URI or ID: ${uri}`);
         });
         
-        const result = await spotifyClient.addTracksToPlaylist(playlistId, validatedUris, position, userId);
+        const result = await spotifyClient.addTracksToPlaylist(playlist, validatedUris, position, userId);
         
         return {
           content: [
@@ -758,6 +758,76 @@ function registerSpotifyTools(server) {
         };
       } catch (error) {
         logger.error('Error adding tracks to playlist on Spotify', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+  
+  // Add to queue tool
+  server.tool(
+    "add-to-queue",
+    "Add tracks to the end of user's playback queue. Only accepts track URIs/IDs - cannot queue playlists/albums/artists directly.",
+    {
+      tracks: z.union([
+        z.string(),
+        z.array(z.string())
+      ]).describe("Track URI(s) or ID(s) to add. Can be full URIs (spotify:track:abc123) or just IDs (abc123). MUST be tracks - cannot queue playlists/albums/artists."),
+      deviceId: z.string().optional().describe("Optional Spotify device ID. If not provided, uses active device"),
+      userId: z.string().describe("User ID for user-specific tokens"),
+      accessToken: z.string().describe("Spotify access token")
+    },
+    async ({ tracks, deviceId, userId, accessToken }) => {
+      try {
+        logger.debug('Adding track(s) to queue', { tracks, deviceId });
+        
+        // Store token for this request
+        spotifyClient.storeUserTokens(userId, {
+          accessToken,
+          expirationTime: Date.now() + 3600 * 1000
+        });
+
+        // Normalize to array
+        const uriArray = Array.isArray(tracks) ? tracks : [tracks];
+        
+        // Validate and normalize URIs
+        const validatedUris = uriArray.map(uri => {
+          // If it's already a full URI, validate format
+          if (uri.startsWith('spotify:track:')) {
+            const id = uri.split(':')[2];
+            if (!/^[0-9A-Za-z]{22}$/.test(id)) {
+              throw new Error(`Invalid Spotify track ID in URI: ${uri}`);
+            }
+            return uri;
+          }
+          
+          // If it's just an ID, validate and convert to URI
+          if (/^[0-9A-Za-z]{22}$/.test(uri)) {
+            return `spotify:track:${uri}`;
+          }
+          
+          throw new Error(`Invalid Spotify track URI or ID: ${uri}. Note: Cannot queue playlists/albums/artists - only individual tracks.`);
+        });
+        
+        await spotifyClient.addToQueue(validatedUris, deviceId, userId);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ success: true }, null, 2)
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error adding tracks to queue', { error: error.message });
         return {
           content: [
             {
@@ -1145,54 +1215,6 @@ function registerSpotifyTools(server) {
         };
       } catch (error) {
         logger.error('Error getting queue from Spotify', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
-  // Add to queue tool
-  server.tool(
-    "add-to-queue",
-    "Add tracks to the end of user's playback queue. Accepts track URIs or IDs. Multiple tracks will be queued in order.",
-    {
-      uri: z.union([
-        z.string(),
-        z.array(z.string())
-      ]).describe("Track URI(s) or ID(s) to add. Can be full URIs (spotify:track:abc123) or just IDs (abc123)"),
-      deviceId: z.string().optional().describe("Optional Spotify device ID. If not provided, uses active device"),
-      userId: z.string().describe("User ID for user-specific tokens"),
-      accessToken: z.string().describe("Spotify access token")
-    },
-    async ({ uri, deviceId, userId, accessToken }) => {
-      try {
-        logger.debug('Adding item(s) to queue', { uri, deviceId });
-        
-        // Store token for this request
-        spotifyClient.storeUserTokens(userId, {
-          accessToken,
-          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
-        });
-        
-        await spotifyClient.addToQueue(uri, deviceId, userId);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({ success: true }, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error adding item to queue', { error: error.message });
         return {
           content: [
             {

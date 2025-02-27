@@ -38,12 +38,11 @@ function registerMusicAipiAgent(server, clients) {
     'Generic conversational agent for music discovery and control',
     {
       query: z.string().describe('The user query to process'),
-      context: z.string().optional().describe('Additional context information'),
-      responseFormat: z.enum(['concise', 'detailed', 'technical', 'simple']).optional().describe('Format of the response'),
+      spotifyAuth: z.string().optional().describe('Spotify Bearer header value like "Bearer userId:accessToken:refreshToken:expirationTime"'),
       conversationHistory: z.string().optional().describe('JSON string of conversation history from the front end'),
       sessionId: z.string().describe('Session ID for thinking events')
     },
-    async ({ query, context = '', responseFormat = 'detailed', conversationHistory = '', sessionId }) => {
+    async ({ query, spotifyAuth = '', conversationHistory = '', sessionId }) => {
       try {
         // Create thinking client for this session if it doesn't exist
         if (!thinkingClients.has(sessionId)) {
@@ -95,8 +94,8 @@ function registerMusicAipiAgent(server, clients) {
 
         const maxTurns = 20;
 
-        // Extract userId from context
-        const auth = context.split('\n')[0];
+        // Extract userId from spotify auth
+        const auth = spotifyAuth.split('\n')[0];
         const [_, authValue] = auth ? auth.split('Bearer ') : [];
         const [userId, accessToken, refreshToken, expirationTime] = authValue ? authValue.split(':') : [];
 
@@ -200,24 +199,27 @@ TIPS:
 - put "(mAIPI)" in any playlist names you create so you can differentiate these and ignore them when selecting from user playlists
 - DO NOT EVEN CONSIDER (mAIPI) PLAYLISTS TO BE THE USER'S PLAYLISTS
 - again, when searching for similar/top items, vary which items you use to give variation to the results
+- again, don't analyze a playlist from its title. get the tracks and analyze them. and to fetch playlist tracks, you'll need the ID, which means a query to all the user's playlists
+- if the user wants a play session, you can either queue tracks or create a playlist and then queue that
 
 YOUR MAIN TASK IN THE FIRST TURN IS TO CREATE A PLAN ON HOW TO SATISFY THE USER REQUEST (unless the user is just chatting)
 COMPLETE YOUR GOAL. DO NOT RETURN PARTIAL RESULTS. e.g. A PLAYLIST MUST HAVE ALL 30+ SONGS ADDED
 DON'T MAKE STUFF UP. IF YOU CAN'T DO SOMETHING, SAY SO
 BE CREATIVE. WHEN NAMING THINGS, OR JUST ALL THE TIME. i don't want dull playlist names or whatever else
+DO NOT RETURN SONG LINKS AND TELL THE USER TO CLICK THEM. it makes more sense to mention queueing or adding to playlist
+ALWAYS SAY HOW MANY SONGS OR WHATEVER YOU'VE ADDED OR DONE ANYTHING WITH. THE USER WANTS TO KNOW
+DON'T FORGET THE ACTUAL USER REQUEST
 **FINAL WORD: DO THINGS THE HUMAN WILL LIKE. AND BE CONCISE**`
           }
         ];
 
         // Add relevant history
-        if (history.length > 0) {
-          history.forEach(m => {
-            agentMessages.push({
-              role: m.role,
-              content: m.content
-            });
+        history.forEach(m => {
+          agentMessages.push({
+            role: m.role,
+            content: m.content
           });
-        }
+        });
 
         // Add current query with context
         agentMessages.push({
@@ -229,6 +231,11 @@ BE CREATIVE. WHEN NAMING THINGS, OR JUST ALL THE TIME. i don't want dull playlis
         let turn = 0;
         let currentModel = "gpt-4o"; // Default for first turn
         let wasDefaultModel = true;
+
+        agentMessages.push({
+          role: 'system',
+          content: `You are now entering agent mode. Current turn: ${turn}/${maxTurns}`
+        });
 
         while (!finalResponse && turn < maxTurns) {
           turn++;
@@ -387,7 +394,7 @@ BE CREATIVE. WHEN NAMING THINGS, OR JUST ALL THE TIME. i don't want dull playlis
             // Add results to conversation with detailed error info
             agentMessages.push({
               role: 'system',
-              content: `Action results:\n${JSON.stringify(actionResults, null, 2)}\n\nIf there were any errors, you can retry the actions with corrected parameters based on the error details provided.`
+              content: `Action results:\n${JSON.stringify(actionResults, null, 1)}\n\nIf there were any errors, you can retry the actions with corrected parameters based on the error details provided.\n\nCurrent turn: ${turn}/${maxTurns}`
             });
           }
         }

@@ -17,7 +17,7 @@ function registerThinkingTools(server) {
   // Echo tool for building context
   server.tool(
     "echo",
-    "Echo text back to think over multiple turns. It's like a <thinking> tag - send your best thoughts and plans and whatever else you'd like to remember here",
+    "This tool will simply return text passed into it. Use it to remember things over multiple turns",
     {
       text: z.string().describe("The text to echo back")
     },

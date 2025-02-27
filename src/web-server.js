@@ -501,8 +501,7 @@ wsServer.on('connection', async (ws, req) => {
           name: 'music-aipi-agent',
           arguments: {
             query: message.query,
-            context: `Bearer ${userId}:${accessToken}:${refreshToken}:${expirationTime}`,
-            responseFormat: message.responseFormat || 'detailed',
+            spotifyAuth: `Bearer ${userId}:${accessToken}:${refreshToken}:${expirationTime}`,
             conversationHistory: message.conversationHistory || '',
             sessionId
           }
