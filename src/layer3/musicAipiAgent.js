@@ -140,13 +140,14 @@ RESPONSE FORMATS:
     },
     ... more actions ...
   ],
-  "next_model": "model_name"
+  "next_model"?: "model_name"
 }
 
 2. when you want to return a final response to the user:
 {
   "type": "response",
-  "text": "your final response to the user's query"
+  "external": "your final response to the user's query",
+  "internal"?: "YOU DON'T **NEED** TO RETURN THIS. it's just for you to remember things. data, etc important to the conversation that the user shouldn't see, for example. don't just narrate what is happening - this param is optional - use it for important info"
 }
 
 MODEL SELECTION:
@@ -271,10 +272,11 @@ DON'T FORGET THE ACTUAL USER REQUEST
           wasDefaultModel = !agentAction.next_model;
 
           if (agentAction.type === 'response') {
+            console.log('final response', agentAction);
             finalResponse = {
               content: [{
                 type: 'text',
-                text: agentAction.text
+                text: JSON.stringify(agentAction)
               }]
             };
           } else if (agentAction.type === 'actions') {

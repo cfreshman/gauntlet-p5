@@ -51,7 +51,20 @@ const ChatInterface = () => {
     }
     if (typeof msg.content === 'object') {
       if (Array.isArray(msg.content)) {
-        return msg.content.map(item => item.text || '').join('\n');
+        return msg.content.map(item => {
+          if (item.text) {
+            try {
+              const parsed = JSON.parse(item.text);
+              if (parsed.type === 'response' && parsed.external) {
+                return parsed.external;
+              }
+            } catch (e) {
+              // If parsing fails, use the original text
+            }
+            return item.text;
+          }
+          return '';
+        }).join('\n');
       }
       return msg.content.text || '';
     }
