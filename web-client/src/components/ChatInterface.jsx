@@ -91,7 +91,6 @@ const ChatInterface = () => {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isLoading ? "waiting for response..." : "type a message..."}
           rows={1}
         />
         <button 
