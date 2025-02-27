@@ -1,26 +1,43 @@
 import AipiLayerServer from './AipiLayerServer.js';
-import { registerMusicAnalysisTools } from '../layer2/musicAnalysisTools.js';
-import { registerPlaylistGenerationTools } from '../layer2/playlistGenerationTools.js';
-import { registerMusicDiscoveryTools } from '../layer2/musicDiscoveryTools.js';
-import { registerLastfmDiscoveryTools } from '../layer2/lastfmDiscoveryTools.js';
+import { z } from 'zod';
 
-const layer2 = new AipiLayerServer({
-  name: 'aipi-layer2-server',
-  port: 3002,
-  wsPort: 3012,
-  useOpenAI: true,
-  tools: {
-    analysis: registerMusicAnalysisTools,
-    playlists: registerPlaylistGenerationTools,
-    discovery: registerMusicDiscoveryTools,
-    lastfm: registerLastfmDiscoveryTools
-  },
-  layerClients: {
-    layer1: {
-      port: 3001,
-      wsPort: 3011
-    }
+/**
+ * Layer 2 Server
+ * 
+ * This server provides agentic tools that combine LLM capabilities with Layer 1 primitives.
+ * Currently empty until we design better tools.
+ */
+class Layer2Server extends AipiLayerServer {
+  constructor() {
+    super({
+      name: 'aipi-layer2-server',
+      port: 3002,
+      wsPort: 3012,
+      useOpenAI: true,
+      tools: {
+        dummy: (server) => {
+          server.tool(
+            "dummy",
+            "Dummy tool to ensure server works",
+            {
+              input: z.string().optional()
+            },
+            async ({ input }) => {
+              return {
+                content: [{ type: "text", text: "ok" }]
+              };
+            }
+          );
+        }
+      },
+      layerClients: {
+        layer1: {
+          port: 3001,
+          wsPort: 3011
+        }
+      }
+    });
   }
-});
+}
 
-export default layer2; 
+export default new Layer2Server(); 

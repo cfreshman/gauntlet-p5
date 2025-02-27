@@ -19,16 +19,16 @@ function registerSpotifyTools(server) {
   // Search tool
   server.tool(
     "search-spotify",
-    "Search for items on Spotify",
+    "Direct text search for items on Spotify. This is NOT a semantic/similarity search - it matches text exactly against track/artist names. For best results, use format 'track:songname artist:artistname'",
     {
-      query: z.string(),
+      query: z.string().describe("Text to search for. Use 'track:' and 'artist:' prefixes for more precise results"),
       types: z.union([
         z.string(),
         z.array(z.string())
-      ]),
-      limit: z.number().min(1).max(50).optional(),
-      offset: z.number().min(0).optional(),
-      market: z.string().optional()
+      ]).describe("What to search for: track, artist, album, or playlist"),
+      limit: z.number().min(1).max(50).optional().describe("Maximum number of results"),
+      offset: z.number().min(0).optional().describe("Offset for pagination"),
+      market: z.string().optional().describe("Market code (ISO 3166-1 alpha-2)")
     },
     async ({ query, types, limit = 20, offset = 0, market = 'US' }) => {
       try {
@@ -411,10 +411,10 @@ function registerSpotifyTools(server) {
   // Get track tool
   server.tool(
     "get-track",
-    "Get detailed information about a specific track",
+    "Get track details by exact Spotify track ID (not URI). Returns basic track metadata like name, artists, album.",
     {
-      trackId: z.string(),
-      market: z.string().optional()
+      trackId: z.string().describe("The Spotify track ID (22 character string, not the full URI)"),
+      market: z.string().optional().describe("Market code (ISO 3166-1 alpha-2)")
     },
     async ({ trackId, market = null }) => {
       try {
@@ -467,50 +467,14 @@ function registerSpotifyTools(server) {
     }
   );
   
-  // Get audio features tool
-  server.tool(
-    "get-audio-features",
-    "Get audio features for a specific track",
-    {
-      trackId: z.string()
-    },
-    async ({ trackId }) => {
-      try {
-        logger.debug('Getting audio features from Spotify', { trackId });
-        
-        const audioFeatures = await spotifyClient.getAudioFeatures(trackId);
-        
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(audioFeatures, null, 2)
-            }
-          ]
-        };
-      } catch (error) {
-        logger.error('Error getting audio features from Spotify', { error: error.message });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error.message}`
-            }
-          ],
-          isError: true
-        };
-      }
-    }
-  );
-  
   // Get playlist tool
   server.tool(
     "get-playlist",
-    "Get details about a playlist",
+    "Get playlist details by exact Spotify playlist ID. Returns metadata and tracks in the playlist.",
     {
-      playlistId: z.string(),
-      fields: z.string().optional(),
-      market: z.string().optional(),
+      playlistId: z.string().describe("The Spotify playlist ID (not URI)"),
+      fields: z.string().optional().describe("Comma-separated list of fields to return"),
+      market: z.string().optional().describe("Market code (ISO 3166-1 alpha-2)"),
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
@@ -723,14 +687,14 @@ function registerSpotifyTools(server) {
   // Add tracks to playlist tool
   server.tool(
     "add-tracks-to-playlist",
-    "Add tracks to a playlist",
+    "Add tracks to a playlist by their Spotify track URIs or IDs. Accepts either format: full URI (spotify:track:abc123) or just ID (abc123).",
     {
-      playlistId: z.string(),
+      playlistId: z.string().describe("The Spotify playlist ID (not URI)"),
       trackUris: z.union([
         z.string(),
         z.array(z.string())
-      ]),
-      position: z.number().optional(),
+      ]).describe("Track URI(s) or ID(s) to add. Can be full URIs (spotify:track:abc123) or just IDs (abc123)"),
+      position: z.number().optional().describe("Position to insert tracks (0-based index)"),
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
@@ -743,8 +707,30 @@ function registerSpotifyTools(server) {
           accessToken,
           expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
         });
+
+        // Normalize to array
+        const uris = Array.isArray(trackUris) ? trackUris : [trackUris];
         
-        const result = await spotifyClient.addTracksToPlaylist(playlistId, trackUris, position, userId);
+        // Validate URIs
+        const validatedUris = uris.map(uri => {
+          // If it's already a full URI, validate format
+          if (uri.startsWith('spotify:track:')) {
+            const id = uri.split(':')[2];
+            if (!/^[0-9A-Za-z]{22}$/.test(id)) {
+              throw new Error(`Invalid Spotify track ID in URI: ${uri}`);
+            }
+            return uri;
+          }
+          
+          // If it's just an ID, validate and convert to URI
+          if (/^[0-9A-Za-z]{22}$/.test(uri)) {
+            return `spotify:track:${uri}`;
+          }
+          
+          throw new Error(`Invalid Spotify track URI or ID: ${uri}`);
+        });
+        
+        const result = await spotifyClient.addTracksToPlaylist(playlistId, validatedUris, position, userId);
         
         return {
           content: [
@@ -1116,7 +1102,7 @@ function registerSpotifyTools(server) {
   // Get queue tool
   server.tool(
     "get-queue",
-    "Get the user's queue",
+    "Get the user's current playback queue. Returns currently playing track and upcoming tracks in queue.",
     {
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
@@ -1159,16 +1145,19 @@ function registerSpotifyTools(server) {
   // Add to queue tool
   server.tool(
     "add-to-queue",
-    "Add an item to the end of the user's queue",
+    "Add tracks to the end of user's playback queue. Accepts track URIs or IDs. Multiple tracks will be queued in order.",
     {
-      uri: z.string().describe("Spotify URI of the item to add"),
-      deviceId: z.string().optional().describe("Spotify device ID"),
+      uri: z.union([
+        z.string(),
+        z.array(z.string())
+      ]).describe("Track URI(s) or ID(s) to add. Can be full URIs (spotify:track:abc123) or just IDs (abc123)"),
+      deviceId: z.string().optional().describe("Optional Spotify device ID. If not provided, uses active device"),
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
-    async ({ uri, deviceId = null, userId, accessToken }) => {
+    async ({ uri, deviceId, userId, accessToken }) => {
       try {
-        logger.debug('Adding item to queue', { uri, deviceId });
+        logger.debug('Adding item(s) to queue', { uri, deviceId });
         
         // Store token for this request
         spotifyClient.storeUserTokens(userId, {
@@ -1176,13 +1165,13 @@ function registerSpotifyTools(server) {
           expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
         });
         
-        const result = await spotifyClient.addToQueue(uri, deviceId, userId);
+        await spotifyClient.addToQueue(uri, deviceId, userId);
         
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result || { success: true }, null, 2)
+              text: JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
@@ -1252,9 +1241,9 @@ function registerSpotifyTools(server) {
   // Pause playback tool
   server.tool(
     "pause-playback",
-    "Pause playback on the user's active device",
+    "Pause playback on specified device or active device if none specified.",
     {
-      deviceId: z.string().optional().describe("Spotify device ID to pause on"),
+      deviceId: z.string().optional().describe("Optional Spotify device ID. If not provided, uses active device"),
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
@@ -1295,36 +1284,36 @@ function registerSpotifyTools(server) {
   
   // Skip to next tool
   server.tool(
-    "skip-to-next",
-    "Skip to the next track in the queue",
+    "skip-next",
+    "Skip forward in queue by specified number of tracks. Skips one track if count not specified.",
     {
-      deviceId: z.string().optional().describe("Spotify device ID"),
+      deviceId: z.string().optional().describe("Optional Spotify device ID. If not provided, uses active device"),
+      count: z.number().min(1).optional().describe("Number of tracks to skip. Defaults to 1 if not specified"),
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
-    async ({ deviceId = null, userId, accessToken }) => {
+    async ({ deviceId, count, userId, accessToken }) => {
       try {
-        logger.debug('Skipping to next track', { deviceId });
+        logger.debug('Skipping to next track(s)', { deviceId, count });
         
         // Store token for this request
         spotifyClient.storeUserTokens(userId, {
           accessToken,
-          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+          expirationTime: Date.now() + 3600 * 1000
         });
         
-        const result = await spotifyClient.skipToNext(deviceId, userId);
+        await spotifyClient.skipToNext(deviceId, userId, count);
         
-        // Handle both JSON and non-JSON responses
         return {
           content: [
             {
               type: "text",
-              text: typeof result === 'string' ? '{"success": true}' : JSON.stringify({ success: true }, null, 2)
+              text: JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
       } catch (error) {
-        logger.error('Error skipping to next track', { error: error.message });
+        logger.error('Error skipping to next', { error: error.message });
         return {
           content: [
             {
@@ -1340,35 +1329,36 @@ function registerSpotifyTools(server) {
   
   // Skip to previous tool
   server.tool(
-    "skip-to-previous",
-    "Skip to the previous track in the queue",
+    "skip-previous",
+    "Skip backward in queue by specified number of tracks. Skips one track if count not specified.",
     {
-      deviceId: z.string().optional().describe("Spotify device ID"),
+      deviceId: z.string().optional().describe("Optional Spotify device ID. If not provided, uses active device"),
+      count: z.number().min(1).optional().describe("Number of tracks to skip. Defaults to 1 if not specified"),
       userId: z.string().describe("User ID for user-specific tokens"),
       accessToken: z.string().describe("Spotify access token")
     },
-    async ({ deviceId = null, userId, accessToken }) => {
+    async ({ deviceId, count, userId, accessToken }) => {
       try {
-        logger.debug('Skipping to previous track', { deviceId });
+        logger.debug('Skipping to previous track(s)', { deviceId, count });
         
         // Store token for this request
         spotifyClient.storeUserTokens(userId, {
           accessToken,
-          expirationTime: Date.now() + 3600 * 1000 // Set expiration 1 hour from now
+          expirationTime: Date.now() + 3600 * 1000
         });
         
-        const result = await spotifyClient.skipToPrevious(deviceId, userId);
+        await spotifyClient.skipToPrevious(deviceId, userId, count);
         
         return {
           content: [
             {
               type: "text",
-              text: typeof result === 'string' ? '{"success": true}' : JSON.stringify({ success: true }, null, 2)
+              text: JSON.stringify({ success: true }, null, 2)
             }
           ]
         };
       } catch (error) {
-        logger.error('Error skipping to previous track', { error: error.message });
+        logger.error('Error skipping to previous', { error: error.message });
         return {
           content: [
             {

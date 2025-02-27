@@ -6,9 +6,10 @@ import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import { WebSocketServerTransport, WebSocketClientTransport } from '../utils/ws-transport.js';
 import logger from '../utils/logger.js';
+import OpenAI from 'openai';
 
 // Constants
-const REQUEST_TIMEOUT = 120000; // 2 minutes timeout
+const REQUEST_TIMEOUT = 600000; // 10 minutes timeout
 
 class AipiLayerServer {
   /**

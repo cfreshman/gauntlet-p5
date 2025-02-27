@@ -17,7 +17,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 // Constants
-const REQUEST_TIMEOUT = 120000; // 2 minutes timeout
+const REQUEST_TIMEOUT = 600000; // 10 minutes timeout
 
 // Do not start thinking server - it runs in its own process
 

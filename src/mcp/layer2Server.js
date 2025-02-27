@@ -14,7 +14,6 @@ import logger from '../utils/logger.js';
 import { MCPBoundaryError } from '../utils/errors.js';
 import { registerMusicAnalysisTools } from '../layer2/musicAnalysisTools.js';
 import { registerPlaylistGenerationTools } from '../layer2/playlistGenerationTools.js';
-import { registerMusicDiscoveryTools } from '../layer2/musicDiscoveryTools.js';
 import { registerLastfmDiscoveryTools } from '../layer2/lastfmDiscoveryTools.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { WebSocketServer } from 'ws';
@@ -74,7 +73,6 @@ class Layer2Server {
     // Register tools
     registerMusicAnalysisTools(this.server);
     registerPlaylistGenerationTools(this.server);
-    registerMusicDiscoveryTools(this.server);
     registerLastfmDiscoveryTools(this.server);
     this.registerDefaultTools();
     this.registerDefaultResources();

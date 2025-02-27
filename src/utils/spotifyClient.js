@@ -552,32 +552,40 @@ class SpotifyClient {
   }
 
   /**
-   * Skip to next track
+   * Skip forward in the queue
    * @param {string} deviceId - Device ID
    * @param {string} userId - User ID for user-specific tokens
+   * @param {number} [count=1] - Number of tracks to skip forward
    * @returns {Promise<void>}
    */
-  async skipToNext(deviceId, userId) {
+  async skipToNext(deviceId, userId, count = 1) {
     try {
       deviceId = await this._getActiveDevice(deviceId, userId);
       const params = deviceId ? { device_id: deviceId } : {};
-      await this.makeRequest('POST', '/me/player/next', params, null, userId);
+      
+      for (let i = 0; i < count; i++) {
+        await this.makeRequest('POST', '/me/player/next', params, null, userId);
+      }
     } catch (error) {
       this._handlePlaybackError(error, 'skip to next track');
     }
   }
 
   /**
-   * Skip to previous track
+   * Skip backward in the queue
    * @param {string} deviceId - Device ID
    * @param {string} userId - User ID for user-specific tokens
+   * @param {number} [count=1] - Number of tracks to skip backward
    * @returns {Promise<void>}
    */
-  async skipToPrevious(deviceId, userId) {
+  async skipToPrevious(deviceId, userId, count = 1) {
     try {
       deviceId = await this._getActiveDevice(deviceId, userId);
       const params = deviceId ? { device_id: deviceId } : {};
-      await this.makeRequest('POST', '/me/player/previous', params, null, userId);
+      
+      for (let i = 0; i < count; i++) {
+        await this.makeRequest('POST', '/me/player/previous', params, null, userId);
+      }
     } catch (error) {
       this._handlePlaybackError(error, 'skip to previous track');
     }
@@ -735,20 +743,24 @@ class SpotifyClient {
   }
 
   /**
-   * Add an item to the user's playback queue
-   * @param {string} uri - Spotify URI of the item to add
+   * Add item(s) to the user's playback queue
+   * @param {string|string[]} uris - Spotify URI(s) of the item(s) to add
    * @param {string} deviceId - Device ID
    * @param {string} userId - User ID for user-specific tokens
    * @returns {Promise<void>}
    */
-  async addToQueue(uri, deviceId, userId) {
+  async addToQueue(uris, deviceId, userId) {
     try {
       deviceId = await this._getActiveDevice(deviceId, userId);
-      const params = {
-        uri,
-        ...deviceId && { device_id: deviceId }
-      };
-      await this.makeRequest('POST', '/me/player/queue', params, null, userId);
+      const uriArray = Array.isArray(uris) ? uris : [uris];
+      
+      for (const uri of uriArray) {
+        const params = {
+          uri,
+          ...deviceId && { device_id: deviceId }
+        };
+        await this.makeRequest('POST', '/me/player/queue', params, null, userId);
+      }
     } catch (error) {
       this._handlePlaybackError(error, 'add to queue');
     }
@@ -807,20 +819,6 @@ class SpotifyClient {
       return await this.makeRequest('GET', `/tracks/${trackId}`, params, null, userId);
     } catch (error) {
       throw new Error(`Failed to get track: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get audio features for a track
-   * @param {string} trackId - The Spotify track ID
-   * @param {string} [userId] - User ID for user-specific tokens
-   * @returns {Promise<Object>} Audio features object
-   */
-  async getAudioFeatures(trackId, userId = null) {
-    try {
-      return await this.makeRequest('GET', `/audio-features/${trackId}`, {}, null, userId);
-    } catch (error) {
-      throw new Error(`Failed to get audio features: ${error.message}`);
     }
   }
 

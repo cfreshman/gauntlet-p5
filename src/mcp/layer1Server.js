@@ -13,6 +13,7 @@ import logger from '../utils/logger.js';
 import { MCPBoundaryError } from '../utils/errors.js';
 import { registerSpotifyTools } from '../layer1/spotifyTools.js';
 import { registerLastFmTools } from '../layer1/lastFmTools.js';
+import { registerThinkingTools } from '../layer1/thinkingTools.js';
 import { WebSocketServer } from 'ws';
 import { WebSocketServerTransport } from '../utils/ws-transport.js';
 
@@ -41,6 +42,7 @@ class Layer1Server {
     // Register tools
     registerSpotifyTools(this.server);
     registerLastFmTools(this.server);
+    registerThinkingTools(this.server);
     this.registerDefaultTools();
     this.registerDefaultResources();
     

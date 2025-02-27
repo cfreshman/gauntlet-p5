@@ -158,15 +158,6 @@ class LastfmClient {
     });
   }
 
-  async getTrackInfo(track, artist) {
-    return this.makeRequest({
-      method: 'track.getInfo',
-      track,
-      artist,
-      autocorrect: 1
-    });
-  }
-
   async getArtistInfo(artist) {
     return this.makeRequest({
       method: 'artist.getInfo',
@@ -178,6 +169,80 @@ class LastfmClient {
   async getTopTracksByTag(tag, limit = 20) {
     return this.makeRequest({
       method: 'tag.getTopTracks',
+      tag,
+      limit
+    });
+  }
+
+  /**
+   * Search for tracks on Last.fm
+   * @param {string} query - Search query
+   * @param {number} [limit=30] - Maximum number of results
+   * @param {number} [page=1] - Page number
+   * @returns {Promise<Object>} Search results
+   */
+  async searchTracks(query, limit = 30, page = 1) {
+    try {
+      const params = {
+        method: 'track.search',
+        track: query,
+        limit,
+        page
+      };
+      
+      return await this.makeRequest(params);
+    } catch (error) {
+      throw new Error(`Failed to search tracks: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get top tags for a track
+   * @param {string} track - Track name
+   * @param {string} artist - Artist name
+   * @param {number} [autocorrect=1] - Whether to autocorrect names
+   * @returns {Promise<Object>} Track tags
+   */
+  async getTrackTopTags(track, artist, autocorrect = 1) {
+    try {
+      const params = {
+        method: 'track.getTopTags',
+        track,
+        artist,
+        autocorrect
+      };
+      
+      return await this.makeRequest(params);
+    } catch (error) {
+      throw new Error(`Failed to get track tags: ${error.message}`);
+    }
+  }
+
+  async getChartTopTracks(limit = 50) {
+    return this.makeRequest({
+      method: 'chart.getTopTracks',
+      limit
+    });
+  }
+
+  async getTagSimilar(tag) {
+    return this.makeRequest({
+      method: 'tag.getSimilar',
+      tag
+    });
+  }
+
+  async getTagTopArtists(tag, limit = 50) {
+    return this.makeRequest({
+      method: 'tag.getTopArtists',
+      tag,
+      limit
+    });
+  }
+
+  async getTagTopAlbums(tag, limit = 50) {
+    return this.makeRequest({
+      method: 'tag.getTopAlbums',
       tag,
       limit
     });
