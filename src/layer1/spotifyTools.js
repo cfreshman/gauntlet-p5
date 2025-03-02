@@ -19,7 +19,7 @@ function registerSpotifyTools(server) {
   // Search tool
   server.tool(
     "search-spotify",
-    "Direct text search for items on Spotify. This performs exact text matching against track/artist/album names - it is NOT a semantic/similarity search and will not find 'similar' items. For best results with tracks, use format: track:songname artist:artistname",
+    "Direct text search for items on Spotify. This performs exact text matching against track/artist/album names - it is NOT a semantic/similarity search and will not find 'similar' items. For best results with tracks, use format: track:songname artist:artistname. Requires a types parameter.",
     {
       query: z.string().describe("Text to search for. For tracks, use format: track:songname artist:artistname. This is an exact text match, not a semantic search"),
       types: z.array(z.enum(['track', 'artist', 'album', 'playlist'])).describe("What to search for: track, artist, album, or playlist"),
