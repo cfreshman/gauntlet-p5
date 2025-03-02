@@ -22,10 +22,7 @@ function registerSpotifyTools(server) {
     "Direct text search for items on Spotify. This performs exact text matching against track/artist/album names - it is NOT a semantic/similarity search and will not find 'similar' items. For best results with tracks, use format: track:songname artist:artistname",
     {
       query: z.string().describe("Text to search for. For tracks, use format: track:songname artist:artistname. This is an exact text match, not a semantic search"),
-      types: z.union([
-        z.string(),
-        z.array(z.string())
-      ]).describe("What to search for: track, artist, album, or playlist"),
+      types: z.array(z.enum(['track', 'artist', 'album', 'playlist'])).describe("What to search for: track, artist, album, or playlist"),
       limit: z.number().min(1).max(50).optional().describe("Maximum number of results"),
       offset: z.number().min(0).optional().describe("Offset for pagination"),
       market: z.string().optional().describe("Market code (ISO 3166-1 alpha-2)")
