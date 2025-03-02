@@ -251,6 +251,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.2s ease;
 }
 
 .control-button:disabled {
@@ -270,6 +271,19 @@
   background-color: #ff7f4d;
   transform: scale(1.05);
   color: black;
+}
+
+.control-button:hover {
+  transform: scale(1.05);
+}
+
+.control-button:active {
+  color: var(--accent-color);
+  transform: scale(0.95);
+}
+
+.control-button.active {
+  color: var(--accent-color);
 }
 
 .player-footer {
@@ -394,8 +408,16 @@ select:disabled {
 }
 
 .mini-control-button:hover {
-  color: var(--accent-color);
   transform: scale(1.1);
+}
+
+.mini-control-button:active {
+  color: var(--accent-color);
+  transform: scale(0.95);
+}
+
+.mini-control-button.active {
+  color: var(--accent-color);
 }
 
 .volume-control-unavailable {
@@ -409,4 +431,33 @@ select:disabled {
   gap: 4px;
   flex: 1;
   min-width: 100px;
+}
+
+.playback-mode-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mode-control-button {
+  background: none;
+  border: none;
+  color: var(--text-color);
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.mode-control-button:hover {
+  opacity: 0.8;
+  transform: scale(1.1);
+}
+
+.mode-control-button.active {
+  opacity: 1;
+  color: var(--accent-color);
 } 

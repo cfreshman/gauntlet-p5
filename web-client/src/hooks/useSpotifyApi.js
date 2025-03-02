@@ -159,6 +159,11 @@ export const useSpotifyApi = () => {
         url: '/api/playback/transfer',
         method: 'POST',
         body: options
+      }),
+      shuffle: (state, deviceId) => makeRequest({
+        url: '/api/playback/shuffle',
+        method: 'POST',
+        body: { state, deviceId }
       })
     }
   };

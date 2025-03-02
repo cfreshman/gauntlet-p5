@@ -478,6 +478,31 @@ app.post('/api/playback/transfer', async (req, res) => {
   }
 });
 
+// Add shuffle endpoint
+app.post('/api/playback/shuffle', async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const [userId, accessToken, refreshToken, expirationTime] = auth.split(' ')[1].split(':');
+    
+    // Store tokens from auth header
+    spotifyClient.storeUserTokens(userId, {
+      accessToken,
+      refreshToken,
+      expirationTime: parseInt(expirationTime)
+    });
+    
+    const { state, deviceId } = req.body;
+    await spotifyClient.togglePlaybackShuffle(state, deviceId, userId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error setting shuffle state:', error);
+    res.status(500).json({ error: 'Failed to set shuffle state' });
+  }
+});
+
 // Create WebSocket server attached to Express
 const wsServer = new WebSocketServer({ noServer: true });
 

@@ -222,6 +222,11 @@ export const PlaybackProvider = ({ children }) => {
         case 'transfer':
           await apiRef.current.playback.transfer({ deviceId: normalizedParams.device_id });
           break;
+        case 'shuffle':
+          await apiRef.current.playback.shuffle(params.state, device_id);
+          // Update UI immediately
+          setPlaybackState(prev => ({ ...prev, shuffle_state: params.state }));
+          break;
       }
 
       // Fetch fresh state after command

@@ -7,7 +7,8 @@ import {
   SpeakerHigh, 
   SpeakerX,
   CaretUp,
-  CaretDown
+  CaretDown,
+  Shuffle
 } from 'phosphor-react';
 import { usePlayback } from '../contexts/PlaybackContext';
 import '../styles/playback-controls.css';
@@ -122,6 +123,16 @@ const PlaybackControls = () => {
             >
               <SkipForward size={16} weight="fill" />
             </button>
+            <button
+              className={`mini-control-button ${playbackState?.shuffle_state ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                sendPlaybackCommand('shuffle', { state: !playbackState?.shuffle_state });
+              }}
+              title={`Shuffle is ${playbackState?.shuffle_state ? 'on' : 'off'}`}
+            >
+              <Shuffle size={16} weight={playbackState?.shuffle_state ? 'fill' : 'regular'} />
+            </button>
           </div>
           <div className="expand-toggle">
             <CaretDown size={14} weight="fill" />
@@ -192,6 +203,14 @@ const PlaybackControls = () => {
                 aria-label="Next track"
               >
                 <SkipForward size={20} weight="fill" />
+              </button>
+              <button
+                className={`control-button ${playbackState?.shuffle_state ? 'active' : ''}`}
+                onClick={() => sendPlaybackCommand('shuffle', { state: !playbackState?.shuffle_state })}
+                aria-label={`Shuffle is ${playbackState?.shuffle_state ? 'on' : 'off'}`}
+                title={`Shuffle is ${playbackState?.shuffle_state ? 'on' : 'off'}`}
+              >
+                <Shuffle size={20} weight={playbackState?.shuffle_state ? 'fill' : 'regular'} />
               </button>
             </div>
             
