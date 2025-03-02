@@ -506,6 +506,9 @@ app.post('/api/playback/shuffle', async (req, res) => {
 // Create WebSocket server attached to Express
 const wsServer = new WebSocketServer({ noServer: true });
 
+// Track active sessions and their handlers
+const activeSessions = new Map();
+
 // Start server
 const port = process.env.PORT || 3000;
 const server = app.listen(port, () => {
@@ -532,7 +535,7 @@ wsServer.on('connection', async (ws, req) => {
     // Get auth from query params
     const params = new URL(req.url, 'ws://localhost').searchParams;
     const auth = params.get('auth');
-    const sessionId = params.get('sessionId');
+    const clientSessionId = params.get('sessionId');
     
     if (!auth) {
       ws.send(JSON.stringify({
@@ -556,16 +559,36 @@ wsServer.on('connection', async (ws, req) => {
       expirationTime: parseInt(expirationTime)
     });
 
-    if (!sessionId) {
+    // Check if this is a reconnection
+    let sessionId = clientSessionId;
+    let activeSession = sessionId ? activeSessions.get(sessionId) : null;
+    let isReconnection = false;
+
+    if (activeSession) {
+      // This is a reconnection
+      isReconnection = true;
+      logger.info(`Reconnection detected for session ${sessionId}`);
+      
+      // Update the WebSocket for this session
+      activeSession.ws = ws;
+      
+      // If there was a pending response, send it
+      if (activeSession.pendingResponse) {
+        logger.info(`Sending pending response for session ${sessionId}`);
+        ws.send(JSON.stringify(activeSession.pendingResponse));
+        delete activeSession.pendingResponse;
+      }
+    } else {
+      // New connection - generate session ID
+      sessionId = uuidv4();
+      activeSession = { ws, userId };
+      activeSessions.set(sessionId, activeSession);
+      
+      // Send session ID to client
       ws.send(JSON.stringify({
-        type: 'error',
-        content: [{
-          type: 'text',
-          text: 'no session id provided'
-        }]
+        type: 'session',
+        sessionId
       }));
-      ws.close();
-      return;
     }
 
     // Get or create thinking client for this session
@@ -593,7 +616,6 @@ wsServer.on('connection', async (ws, req) => {
         logger.info(`Connected thinking client for session ${sessionId}`);
       } catch (error) {
         logger.error(`Failed to connect thinking client for session ${sessionId}:`, error);
-        // Don't close the websocket - we can still handle messages without thinking updates
         logger.warn(`Continuing without thinking client for session ${sessionId}`);
       }
     }
@@ -632,9 +654,13 @@ wsServer.on('connection', async (ws, req) => {
           }
         }, undefined, { timeout: REQUEST_TIMEOUT });
 
-        // Send final response
+        // Store result in case of disconnection
+        activeSession.pendingResponse = result;
+
+        // Send final response if still connected
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify(result));
+          delete activeSession.pendingResponse;
         }
       } catch (error) {
         logger.error('Error processing message:', error);
@@ -653,12 +679,28 @@ wsServer.on('connection', async (ws, req) => {
     // Handle client disconnect
     ws.on('close', () => {
       logger.info(`Browser WebSocket closed for session ${sessionId}`);
-      // Clear message handler when connection closes
+      
+      // Clear message handler
       if (thinkingClient) {
         thinkingClient.onMessage(null);
       }
-      // Don't close thinking client immediately - might be temporary disconnect
-      // Let it be cleaned up by the cleanup interval
+
+      // Start grace period for session
+      setTimeout(() => {
+        const session = activeSessions.get(sessionId);
+        // Only clean up if this is still the same WebSocket instance
+        if (session && session.ws === ws) {
+          logger.info(`Cleaning up session ${sessionId} after grace period`);
+          activeSessions.delete(sessionId);
+          
+          // Also clean up thinking client
+          const client = thinkingClients.get(sessionId);
+          if (client) {
+            client.close();
+            thinkingClients.delete(sessionId);
+          }
+        }
+      }, 30000); // 30 second grace period
     });
 
   } catch (error) {
@@ -667,16 +709,17 @@ wsServer.on('connection', async (ws, req) => {
   }
 });
 
-// Cleanup disconnected thinking clients periodically
+// Cleanup disconnected thinking clients periodically - but only those without active reconnection timers
 setInterval(() => {
+  const now = Date.now();
   for (const [sessionId, thinkingClient] of thinkingClients.entries()) {
-    if (!thinkingClient.isConnected()) {
-      logger.info(`Cleaning up disconnected thinking client for session ${sessionId}`);
+    if (!thinkingClient.isConnected() && (!thinkingClient.lastDisconnect || now - thinkingClient.lastDisconnect > 30000)) {
+      logger.info(`Cleaning up stale thinking client for session ${sessionId}`);
       thinkingClient.close();
       thinkingClients.delete(sessionId);
     }
   }
-}, 60000); // Clean up every minute
+}, 60000); // Run cleanup every minute
 
 // Health check endpoint
 app.get('/health', (req, res) => {

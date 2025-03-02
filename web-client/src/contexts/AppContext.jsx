@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 const STORAGE_KEY = 'music-aipi-chat-history';
 const AUTH_STORAGE_KEY = 'music-aipi-auth';
+const SESSION_STORAGE_KEY = 'music-aipi-session';
 
 const AppContext = createContext(null);
 
@@ -17,7 +18,6 @@ export const AppProvider = ({ children }) => {
   const { isAuthenticated, setIsAuthenticated, api, logout } = useSpotifyApi();
   const [userId, setUserId] = useState(null);
   const wsRef = useRef(null);
-  const sessionIdRef = useRef(null);
   const retryTimeoutRef = useRef(null);
   const retryCountRef = useRef(0);
   const MAX_RETRIES = 3;
@@ -30,11 +30,6 @@ export const AppProvider = ({ children }) => {
     if (!auth) {
       setIsConnected(false);
       return;
-    }
-
-    // Generate session ID if needed
-    if (!sessionIdRef.current) {
-      sessionIdRef.current = uuidv4();
     }
 
     connectWebSocket();
@@ -88,7 +83,9 @@ export const AppProvider = ({ children }) => {
     const { userId, accessToken, refreshToken, expirationTime } = JSON.parse(auth);
     const authString = `${userId}:${accessToken}:${refreshToken}:${expirationTime}`;
 
-    const wsUrl = `ws://localhost:3000/chat?auth=${encodeURIComponent(authString)}&sessionId=${sessionIdRef.current}`;
+    // Get existing session ID if any
+    const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+    const wsUrl = `ws://localhost:3000/chat?auth=${encodeURIComponent(authString)}${sessionId ? `&sessionId=${sessionId}` : ''}`;
     wsRef.current = new WebSocket(wsUrl);
 
     wsRef.current.onopen = () => {
@@ -111,6 +108,12 @@ export const AppProvider = ({ children }) => {
       const data = JSON.parse(event.data);
       console.log('Parsed WebSocket message:', data);
       console.log('Message type:', data.type);
+
+      if (data.type === 'session') {
+        // Store session ID for reconnection
+        localStorage.setItem(SESSION_STORAGE_KEY, data.sessionId);
+        return;
+      }
 
       if (data.type === 'thinking') {
         console.log('Processing thinking message:', data.content);
@@ -155,6 +158,13 @@ export const AppProvider = ({ children }) => {
       console.log('WebSocket connection closed');
       wsRef.current = null;
       setIsConnected(false);
+      
+      // If we've exceeded retries, clear session ID and thinking messages
+      if (retryCountRef.current >= MAX_RETRIES) {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+        setMessages(prev => prev.filter(m => !m.isThinking));
+      }
+      
       retryConnection();
     };
 
@@ -214,6 +224,12 @@ export const AppProvider = ({ children }) => {
     setIsLoading(false);
   };
 
+  // Clear session on logout
+  const handleLogout = () => {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    logout();
+  };
+
   const value = {
     messages,
     isLoading,
@@ -223,7 +239,7 @@ export const AppProvider = ({ children }) => {
     setIsAuthenticated,
     sendMessage,
     clearHistory,
-    logout
+    logout: handleLogout // Use wrapped logout that clears session
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

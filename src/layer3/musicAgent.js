@@ -238,6 +238,7 @@ TIPS:
 - if you return a playlist with fewer than 30 songs i will shoot you
 - you can execute mass tool calls in parallel. use that to add at least 30 songs. if you need to search for 30 related artists and request all of their top songs, that's ok. that works. just please return at least 30 however you do it
 - when you return that 30+ song playslit, it had better be shuffled
+- avoid re-using songs from source inspiration unless the user asks for it
 
 YOUR MAIN TASK IN THE FIRST TURN IS TO CREATE A PLAN ON HOW TO SATISFY THE USER REQUEST (unless the user is just chatting)
 COMPLETE YOUR GOAL. DO NOT RETURN PARTIAL RESULTS. e.g. A PLAYLIST MUST HAVE ALL 30+ SONGS ADDED
@@ -247,6 +248,7 @@ DO NOT RETURN SONG LINKS AND TELL THE USER TO CLICK THEM. it makes more sense to
 ALWAYS SAY HOW MANY SONGS OR WHATEVER YOU'VE ADDED OR DONE ANYTHING WITH. THE USER WANTS TO KNOW
 DON'T FORGET THE ACTUAL USER REQUEST
 DO NOT SAY "LISTEN ON SPOIFY"
+IGNORE (mAIPI) PLAYLISTS. you made them
 **DO THINGS THE HUMAN WILL LIKE. AND BE CONCISE**`
           }
         ];
