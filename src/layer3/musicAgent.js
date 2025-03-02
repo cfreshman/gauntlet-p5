@@ -36,6 +36,11 @@ const thinkingClients = new Map();
 function registerMusicAgent(server, { client }) {
   logger.info('Registering Generic AIPI Agent (Layer 3)...');
 
+  if (!client) {
+    logger.error('No reflective client provided to music agent');
+    throw new Error('Reflective client required');
+  }
+
   server.tool(
     'music-agent',
     'Generic conversational agent for music discovery and control',
@@ -48,42 +53,6 @@ function registerMusicAgent(server, { client }) {
     async ({ query, spotifyAuth = '', conversationHistory = '', sessionId }) => {
       try {
         logger.info(`Starting agent for session ${sessionId} with query: ${query}`);
-
-        // Create new client for this request
-        const requestClient = new Client({
-          name: 'music-aipi-request-client',
-          version: '1.0.0'
-        }, {
-          capabilities: {
-            prompts: {},
-            resources: {},
-            tools: {}
-          },
-          requestTimeout: 600000 // 10 minutes
-        });
-
-        // Connect to local MCP server
-        const ws = new WebSocket('ws://localhost:3100');
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('Connection timed out after 5s'));
-          }, 5000);
-
-          ws.once('open', () => {
-            clearTimeout(timeout);
-            resolve();
-          });
-
-          ws.once('error', (err) => {
-            clearTimeout(timeout);
-            reject(err);
-          });
-        });
-
-        const transport = new WebSocketClientTransport(ws);
-        await transport.start();
-        await requestClient.connect(transport);
-        logger.info('Created new client for request');
 
         // Create thinking client for this session if it doesn't exist
         if (!thinkingClients.has(sessionId)) {
@@ -104,11 +73,11 @@ function registerMusicAgent(server, { client }) {
           logger.warn('Failed to parse conversation history', { error: error.message, conversationHistory });
         }
 
-        // Get available tools
-        logger.debug('Fetching available tools from client');
+        // Get available tools using the passed reflective client
+        logger.debug('Fetching available tools from reflective client');
         let tools;
         try {
-          tools = await requestClient.listTools();
+          tools = await client.listTools();
           logger.info(`Successfully listed ${tools.tools?.length || 0} tools:`, 
             tools.tools?.map(t => t.name) || []);
         } catch (error) {
@@ -206,7 +175,7 @@ RESPONSE FORMATS:
 {
   "type": "response",
   "external": "your final response to the user's query",
-  "internal"?: "YOU DON'T **NEED** TO RETURN THIS. it's just for you to remember things. data, etc important to the conversation that the user shouldn't see, for example. don't just narrate what is happening - this param is optional - use it for important info"
+  "internal": it's just for you to remember things. data, etc important to the conversation that the user shouldn't see, for example. don't just narrate what is happening - this param is optional - use it for important info"
 }
 
 MODEL SELECTION:
@@ -261,7 +230,8 @@ TIPS:
 - again, when searching for similar/top items, vary which items you use to give variation to the results
 - again, don't analyze a playlist from its title. get the tracks and analyze them. and to fetch playlist tracks, you'll need the ID, which means a query to all the user's playlists
 - if the user wants a play session, you can either queue tracks or create a playlist and then queue that
-- don't return links to 'listen on Spotify' unless the user asks for that. you can just return linked resources, and suggest queueing or creating a playlist
+- DO NOT RETURN LINKS AND SAY 'listen on Spotify' unless the user asks for that. you can just return linked resources, and suggest queueing or creating a playlist
+- you don't have to use the link conversion tool if you already have artist & track names. just targeted search on Spotify
 
 YOUR MAIN TASK IN THE FIRST TURN IS TO CREATE A PLAN ON HOW TO SATISFY THE USER REQUEST (unless the user is just chatting)
 COMPLETE YOUR GOAL. DO NOT RETURN PARTIAL RESULTS. e.g. A PLAYLIST MUST HAVE ALL 30+ SONGS ADDED
@@ -270,6 +240,7 @@ BE CREATIVE. WHEN NAMING THINGS, OR JUST ALL THE TIME. i don't want dull playlis
 DO NOT RETURN SONG LINKS AND TELL THE USER TO CLICK THEM. it makes more sense to mention queueing or adding to playlist
 ALWAYS SAY HOW MANY SONGS OR WHATEVER YOU'VE ADDED OR DONE ANYTHING WITH. THE USER WANTS TO KNOW
 DON'T FORGET THE ACTUAL USER REQUEST
+DO NOT SAY "LISTEN ON SPOIFY"
 **FINAL WORD: DO THINGS THE HUMAN WILL LIKE. AND BE CONCISE**`
           }
         ];
@@ -464,10 +435,10 @@ DON'T FORGET THE ACTUAL USER REQUEST
                     injectedToken: needsToken
                   });
 
-                  // Call the tool
+                  // Call the tool using the passed reflective client
                   try {
                     logger.debug(`Calling tool: ${action.tool}`);
-                    const result = await requestClient.callTool({
+                    const result = await client.callTool({
                       name: action.tool,
                       arguments: args
                     });
@@ -535,8 +506,6 @@ DON'T FORGET THE ACTUAL USER REQUEST
           thinkingClients.get(sessionId).close();
           thinkingClients.delete(sessionId);
         }
-        ws.close();
-        logger.debug('Cleaned up request client');
 
         if (!finalResponse) {
           logger.warn('No final response after max turns', { maxTurns });
@@ -555,10 +524,6 @@ DON'T FORGET THE ACTUAL USER REQUEST
           logger.debug(`Cleaning up thinking client for session ${sessionId} after error`);
           thinkingClients.get(sessionId).close();
           thinkingClients.delete(sessionId);
-        }
-        if (ws) {
-          ws.close();
-          logger.debug('Cleaned up request client after error');
         }
 
         logger.error('Error in music-aipi-agent:', error);

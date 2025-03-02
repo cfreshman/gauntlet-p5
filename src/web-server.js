@@ -61,6 +61,99 @@ const client = new Client({
 // Track thinking clients
 const thinkingClients = new Map();
 
+// AIPI client management
+let aipiClient = null;
+let aipiWs = null;
+let aipiConnected = false;
+const maxRetries = 3;
+
+async function getAipiClient() {
+  if (aipiConnected && aipiClient) {
+    return aipiClient;
+  }
+
+  // Clean up any existing connection
+  if (aipiWs) {
+    aipiWs.close();
+    aipiWs = null;
+  }
+  if (aipiClient) {
+    aipiClient = null;
+  }
+  aipiConnected = false;
+
+  // Create new client
+  aipiClient = new Client({
+    name: 'web-request-client',
+    version: '1.0.0'
+  }, {
+    capabilities: {
+      prompts: {},
+      resources: {},
+      tools: {}
+    },
+    requestTimeout: REQUEST_TIMEOUT
+  });
+
+  let retryCount = 0;
+  while (!aipiConnected && retryCount < maxRetries) {
+    try {
+      aipiWs = new WebSocket(`ws://localhost:5907`);
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Connection timeout'));
+        }, 5000);
+
+        aipiWs.once('open', () => {
+          clearTimeout(timeout);
+          aipiConnected = true;
+          resolve();
+        });
+
+        aipiWs.once('error', (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+
+        aipiWs.once('close', () => {
+          aipiConnected = false;
+          if (!aipiConnected) {
+            reject(new Error('Connection closed'));
+          }
+        });
+      });
+
+      const transport = new WebSocketClientTransport(aipiWs);
+      await transport.start();
+      await aipiClient.connect(transport);
+
+      // Set up reconnection handler
+      aipiWs.on('close', async () => {
+        logger.warn('AIPI connection closed, will reconnect on next request');
+        aipiConnected = false;
+        aipiWs = null;
+        aipiClient = null;
+      });
+
+      return aipiClient;
+    } catch (error) {
+      retryCount++;
+      logger.warn(`AIPI connection attempt ${retryCount} failed:`, error);
+      if (aipiWs) {
+        aipiWs.close();
+        aipiWs = null;
+      }
+      if (retryCount < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 5000);
+        logger.info(`Retrying AIPI connection in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw new Error('Failed to connect to AIPI server after multiple attempts');
+}
+
 // Spotify auth routes
 app.get('/auth/spotify', (req, res) => {
   try {
@@ -499,40 +592,8 @@ wsServer.on('connection', async (ws, req) => {
           }
         }
 
-        // Create new client for this request
-        const requestClient = new Client({
-          name: 'web-request-client',
-          version: '1.0.0'
-        }, {
-          capabilities: {
-            prompts: {},
-            resources: {},
-            tools: {}
-          },
-          requestTimeout: REQUEST_TIMEOUT
-        });
-
-        // Create new connection for this request
-        const mcpWs = new WebSocket(`ws://localhost:3100`);
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('Connection timeout'));
-          }, 5000);
-
-          mcpWs.once('open', () => {
-            clearTimeout(timeout);
-            resolve();
-          });
-
-          mcpWs.once('error', (err) => {
-            clearTimeout(timeout);
-            reject(err);
-          });
-        });
-
-        const transport = new WebSocketClientTransport(mcpWs);
-        await transport.start();
-        await requestClient.connect(transport);
+        // Get AIPI client (will reconnect if needed)
+        const requestClient = await getAipiClient();
 
         // Call the music-agent
         const result = await requestClient.callTool({
@@ -544,9 +605,6 @@ wsServer.on('connection', async (ws, req) => {
             sessionId
           }
         });
-
-        // Clean up connection
-        mcpWs.close();
 
         // Send final response
         if (ws.readyState === WebSocket.OPEN) {

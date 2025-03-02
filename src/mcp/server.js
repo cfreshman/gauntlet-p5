@@ -12,7 +12,7 @@ import layer1Tools from './layer1.js';
 import layer2Tools from './layer2.js';
 import layer3Tools from './layer3.js';
 
-const PORT = process.env.MCP_PORT || 3100;
+const PORT = process.env.MCP_PORT || 5907;
 const REQUEST_TIMEOUT = 600000; // 10 minutes
 
 async function startServer() {
