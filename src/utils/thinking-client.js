@@ -78,10 +78,17 @@ export class ThinkingReceiveClient {
         
         this.ws.on('open', () => {
           logger.info(`ThinkingReceiveClient connected for session ${sessionId}`);
-          // Register as a receiver by sending a registration message
-          this.ws.send(JSON.stringify({ type: 'register_receiver' }));
-          this.connected = true;
-          resolve();
+          // Wait a small delay before sending registration
+          setTimeout(() => {
+            if (this.ws?.readyState === WebSocket.OPEN) {
+              this.ws.send(JSON.stringify({ type: 'register_receiver' }));
+              this.connected = true;
+              resolve();
+            } else {
+              this.connected = false;
+              reject(new Error('WebSocket not open after delay'));
+            }
+          }, 100);
         });
 
         this.ws.on('message', (data) => {
@@ -118,6 +125,11 @@ export class ThinkingReceiveClient {
   }
 
   onMessage(handler) {
+    if (handler === null) {
+      logger.info(`Clearing message handler for session ${this.sessionId}`);
+      this.messageHandler = null;
+      return;
+    }
     logger.info(`Setting message handler for session ${this.sessionId}`);
     this.messageHandler = handler;
   }

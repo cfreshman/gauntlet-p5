@@ -550,6 +550,17 @@ wsServer.on('connection', async (ws, req) => {
       thinkingClients.set(sessionId, thinkingClient);
     }
 
+    // Clear any existing message handler
+    thinkingClient.onMessage(null);
+
+    // Set up message handler for this connection
+    thinkingClient.onMessage((message) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        logger.info(`Forwarding thinking message to browser for session ${sessionId}:`, message);
+        ws.send(JSON.stringify(message));
+      }
+    });
+
     // Connect thinking client if needed
     if (!thinkingClient.isConnected()) {
       try {
@@ -560,16 +571,6 @@ wsServer.on('connection', async (ws, req) => {
         // Don't close the websocket - we can still handle messages without thinking updates
         logger.warn(`Continuing without thinking client for session ${sessionId}`);
       }
-    }
-
-    // Forward thinking messages to browser if connected
-    if (thinkingClient.isConnected() && !thinkingClient.messageHandler) {
-      thinkingClient.onMessage((message) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          logger.info(`Forwarding thinking message to browser for session ${sessionId}:`, message);
-          ws.send(JSON.stringify(message));
-        }
-      });
     }
 
     // Handle messages from browser
@@ -604,7 +605,7 @@ wsServer.on('connection', async (ws, req) => {
             conversationHistory: message.conversationHistory || '',
             sessionId
           }
-        });
+        }, undefined, { timeout: REQUEST_TIMEOUT });
 
         // Send final response
         if (ws.readyState === WebSocket.OPEN) {
@@ -627,6 +628,10 @@ wsServer.on('connection', async (ws, req) => {
     // Handle client disconnect
     ws.on('close', () => {
       logger.info(`Browser WebSocket closed for session ${sessionId}`);
+      // Clear message handler when connection closes
+      if (thinkingClient) {
+        thinkingClient.onMessage(null);
+      }
       // Don't close thinking client immediately - might be temporary disconnect
       // Let it be cleaned up by the cleanup interval
     });

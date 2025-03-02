@@ -25,6 +25,7 @@ const getOpenAI = () => {
   return openai;
 };
 
+const REQUEST_TIMEOUT = 600000;
 // Map to store thinking clients by session ID
 const thinkingClients = new Map();
 
@@ -442,7 +443,7 @@ DO NOT SAY "LISTEN ON SPOIFY"
                     const result = await client.callTool({
                       name: action.tool,
                       arguments: args
-                    });
+                    }, undefined, { timeout: REQUEST_TIMEOUT });
                     logger.debug(`Tool ${action.tool} result:`, { 
                       success: true,
                       resultKeys: Object.keys(result || {})
