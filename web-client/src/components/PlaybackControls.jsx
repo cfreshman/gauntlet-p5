@@ -16,6 +16,8 @@ import '../styles/playback-controls.css';
 const PlaybackControls = () => {
   const [expanded, setExpanded] = useState(false);
   const [localProgress, setLocalProgress] = useState(0);
+  const [isDraggingVolume, setIsDraggingVolume] = useState(false);
+  const [localVolume, setLocalVolume] = useState(null);
   const progressTimerRef = useRef(null);
   const { playbackState, playbackDevices, sendPlaybackCommand, handlePlayerExpandToggle } = usePlayback();
 
@@ -25,6 +27,13 @@ const PlaybackControls = () => {
       setLocalProgress(playbackState.progress_ms);
     }
   }, [playbackState?.progress_ms]);
+
+  // Update local volume when playback state changes and we're not dragging
+  useEffect(() => {
+    if (!isDraggingVolume && playbackState?.device?.volume_percent !== undefined) {
+      setLocalVolume(playbackState.device.volume_percent);
+    }
+  }, [playbackState?.device?.volume_percent, isDraggingVolume]);
 
   // Handle progress timer
   useEffect(() => {
@@ -225,9 +234,17 @@ const PlaybackControls = () => {
                       type="range"
                       min="0"
                       max="100"
-                      value={device?.volume_percent || 50}
+                      value={isDraggingVolume ? localVolume : (playbackState?.device?.volume_percent ?? 50)}
+                      onMouseDown={() => {
+                        setIsDraggingVolume(true);
+                        setLocalVolume(playbackState?.device?.volume_percent ?? 50);
+                      }}
+                      onMouseUp={() => {
+                        setIsDraggingVolume(false);
+                      }}
                       onChange={(e) => {
                         const volumePercent = parseInt(e.target.value, 10);
+                        setLocalVolume(volumePercent);
                         sendPlaybackCommand('volume', { volumePercent });
                       }}
                       className="volume-slider"

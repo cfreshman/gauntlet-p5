@@ -184,6 +184,7 @@
 /* Markdown styling */
 .message-content {
   font-size: 13px;
+  white-space: pre-wrap;
 }
 
 .message-content a {
