@@ -40,7 +40,7 @@
 }
 
 .message {
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-sm) var(--radius-lg);
   border-radius: var(--radius-lg);
   max-width: 85%;
   font-family: 'Roboto Mono', monospace;
@@ -184,7 +184,7 @@
 /* Markdown styling */
 .message-content {
   font-size: 13px;
-  white-space: pre-wrap;
+  /* white-space: pre-wrap; */
 }
 
 .message-content a {

@@ -264,6 +264,40 @@ class LastfmClient {
     };
     return this.makeRequest(params);
   }
+
+  /**
+   * Get top artists for a specific country
+   * @param {string} country - The country name (ISO 3166-1)
+   * @param {number} limit - Maximum number of results
+   * @param {number} page - Page number for pagination
+   * @returns {Promise<Object>} Last.fm API response
+   */
+  async getGeoTopArtists(country, limit = 50, page = 1) {
+    const params = {
+      method: 'geo.gettopartists',
+      country,
+      limit,
+      page
+    };
+    return this.makeRequest(params);
+  }
+
+  /**
+   * Get top tracks for a specific country
+   * @param {string} country - The country name (ISO 3166-1)
+   * @param {number} limit - Maximum number of results
+   * @param {number} page - Page number for pagination
+   * @returns {Promise<Object>} Last.fm API response
+   */
+  async getGeoTopTracks(country, limit = 50, page = 1) {
+    const params = {
+      method: 'geo.gettoptracks',
+      country,
+      limit,
+      page
+    };
+    return this.makeRequest(params);
+  }
 }
 
 // Create singleton instance

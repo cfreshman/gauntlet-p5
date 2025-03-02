@@ -796,6 +796,119 @@ function registerLastFmTools(server) {
     }
   );
   
+  // Get geo top artists tool
+  server.tool(
+    "get-geo-top-artists",
+    "Get top artists for a specific country using Last.fm. Country name must follow ISO 3166-1 country names standard.",
+    {
+      country: z.string().describe("The country name (must follow ISO 3166-1 country names standard)"),
+      limit: z.number().min(1).max(100).optional().describe("Maximum number of artists to return"),
+      page: z.number().min(1).optional().describe("Page number for pagination")
+    },
+    async ({ country, limit = 50, page = 1 }) => {
+      try {
+        logger.debug('Getting geo top artists from Last.fm', { country, limit, page });
+        
+        const results = await lastfmClient.getGeoTopArtists(country, limit, page);
+        
+        // Process response to include artist info
+        const artists = results.topartists?.artist?.map(a => ({
+          name: a.name,
+          listeners: parseInt(a.listeners, 10),
+          url: a.url
+        })) || [];
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: false,
+                country,
+                artists,
+                totalResults: artists.length,
+                page
+              })
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error getting geo top artists from Last.fm', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: true,
+                message: error.message,
+                country,
+                artists: []
+              })
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+
+  // Get geo top tracks tool
+  server.tool(
+    "get-geo-top-tracks",
+    "Get top tracks for a specific country using Last.fm. Country name must follow ISO 3166-1 country names standard.",
+    {
+      country: z.string().describe("The country name (must follow ISO 3166-1 country names standard)"),
+      limit: z.number().min(1).max(100).optional().describe("Maximum number of tracks to return"),
+      page: z.number().min(1).optional().describe("Page number for pagination")
+    },
+    async ({ country, limit = 50, page = 1 }) => {
+      try {
+        logger.debug('Getting geo top tracks from Last.fm', { country, limit, page });
+        
+        const results = await lastfmClient.getGeoTopTracks(country, limit, page);
+        
+        // Process response to include track info
+        const tracks = results.tracks?.track?.map(t => ({
+          name: t.name,
+          artist: t.artist.name,
+          listeners: parseInt(t.listeners, 10),
+          url: t.url
+        })) || [];
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: false,
+                country,
+                tracks,
+                totalResults: tracks.length,
+                page
+              })
+            }
+          ]
+        };
+      } catch (error) {
+        logger.error('Error getting geo top tracks from Last.fm', { error: error.message });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: true,
+                message: error.message,
+                country,
+                tracks: []
+              })
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+
   logger.info('last.fm tools registered successfully');
 }
 
