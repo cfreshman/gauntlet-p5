@@ -1,24 +1,7 @@
-import AipiLayerServer from './AipiLayerServer.js';
-import { registerMusicAipiAgent } from '../layer3/musicAipiAgent.js';
+import { registerMusicAgent } from '../layer3/musicAgent.js';
 
-const layer3 = new AipiLayerServer({
-  name: 'aipi-layer3-server',
-  port: 3003,
-  wsPort: 3013,
-  useOpenAI: true,
-  tools: {
-    agent: (server, clients) => registerMusicAipiAgent(server, clients)
-  },
-  layerClients: {
-    layer2: {
-      port: 3002,
-      wsPort: 3012
-    },
-    layer1: {
-      port: 3001,
-      wsPort: 3011
-    }
-  }
-});
+function register(server, { client }) {
+  registerMusicAgent(server, { client });
+}
 
-export default layer3; 
+export default { register }; 

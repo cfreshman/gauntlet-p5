@@ -10,6 +10,9 @@ import { OpenAI } from 'openai';
 import { z } from 'zod';
 import toolFormatter from '../utils/tool-formatter.js';
 import { ThinkingSendClient } from '../utils/thinking-client.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { WebSocketClientTransport } from '../utils/ws-transport.js';
+import WebSocket from 'ws';
 
 // Lazy OpenAI client initialization
 let openai = null;
@@ -28,13 +31,13 @@ const thinkingClients = new Map();
 /**
  * Register the generic agent with the server
  * @param {object} server - The server instance to register tools with
- * @param {object} clients - The connected layer clients
+ * @param {object} config - Configuration object containing client
  */
-function registerMusicAipiAgent(server, clients) {
+function registerMusicAgent(server, { client }) {
   logger.info('Registering Generic AIPI Agent (Layer 3)...');
 
   server.tool(
-    'music-aipi-agent',
+    'music-agent',
     'Generic conversational agent for music discovery and control',
     {
       query: z.string().describe('The user query to process'),
@@ -44,8 +47,47 @@ function registerMusicAipiAgent(server, clients) {
     },
     async ({ query, spotifyAuth = '', conversationHistory = '', sessionId }) => {
       try {
+        logger.info(`Starting agent for session ${sessionId} with query: ${query}`);
+
+        // Create new client for this request
+        const requestClient = new Client({
+          name: 'music-aipi-request-client',
+          version: '1.0.0'
+        }, {
+          capabilities: {
+            prompts: {},
+            resources: {},
+            tools: {}
+          },
+          requestTimeout: 600000 // 10 minutes
+        });
+
+        // Connect to local MCP server
+        const ws = new WebSocket('ws://localhost:3100');
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Connection timed out after 5s'));
+          }, 5000);
+
+          ws.once('open', () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+
+          ws.once('error', (err) => {
+            clearTimeout(timeout);
+            reject(err);
+          });
+        });
+
+        const transport = new WebSocketClientTransport(ws);
+        await transport.start();
+        await requestClient.connect(transport);
+        logger.info('Created new client for request');
+
         // Create thinking client for this session if it doesn't exist
         if (!thinkingClients.has(sessionId)) {
+          logger.debug(`Creating new thinking client for session ${sessionId}`);
           const thinkingClient = new ThinkingSendClient();
           await thinkingClient.connect(sessionId);
           thinkingClients.set(sessionId, thinkingClient);
@@ -57,29 +99,34 @@ function registerMusicAipiAgent(server, clients) {
         let history = [];
         try {
           history = conversationHistory ? JSON.parse(conversationHistory) : [];
+          logger.debug('Parsed conversation history:', { historyLength: history.length });
         } catch (error) {
-          logger.warn('Failed to parse conversation history', { error: error.message });
+          logger.warn('Failed to parse conversation history', { error: error.message, conversationHistory });
         }
 
         // Get available tools
-        const tools = {
-          layer1: await clients.layer1?.listTools().catch(() => ({ tools: [] })) || { tools: [] },
-          layer2: await clients.layer2?.listTools().catch(() => ({ tools: [] })) || { tools: [] }
-        };
-
+        logger.debug('Fetching available tools from client');
+        let tools;
+        try {
+          tools = await requestClient.listTools();
+          logger.info(`Successfully listed ${tools.tools?.length || 0} tools:`, 
+            tools.tools?.map(t => t.name) || []);
+        } catch (error) {
+          logger.error('Failed to list tools:', error);
+          tools = { tools: [] };
+        }
+        
         // Log tools for debugging
-        logger.info(`Tools from layer1: ${tools.layer1.tools?.length || 0} tools`);
-        logger.info(`Tools from layer2: ${tools.layer2.tools?.length || 0} tools`);
+        logger.info(`Available tools: ${tools.tools?.length || 0} tools`);
+        logger.debug('Tool names:', tools.tools?.map(t => t.name));
 
         const normalizedTools = {
-          layer1: tools.layer1.tools || [],
-          layer2: tools.layer2.tools || []
+          tools: tools.tools || []
         };
 
         // Check if we have any tools
-        const totalTools = Object.values(normalizedTools).reduce((sum, arr) => sum + arr.length, 0);
-        if (totalTools === 0) {
-          logger.warn('No tools available from any layer');
+        if (!normalizedTools.tools.length) {
+          logger.warn('No tools available');
           return {
             content: [
               {
@@ -96,10 +143,17 @@ function registerMusicAipiAgent(server, clients) {
 
         // Extract userId from spotify auth
         const auth = spotifyAuth.split('\n')[0];
+        logger.debug('Processing auth string:', { authLength: auth.length });
         const [_, authValue] = auth ? auth.split('Bearer ') : [];
         const [userId, accessToken, refreshToken, expirationTime] = authValue ? authValue.split(':') : [];
 
         if (!userId || !accessToken || !refreshToken || !expirationTime) {
+          logger.warn('Invalid auth components:', { 
+            hasUserId: !!userId, 
+            hasAccessToken: !!accessToken, 
+            hasRefreshToken: !!refreshToken,
+            hasExpirationTime: !!expirationTime 
+          });
           return {
             content: [{
               type: "text",
@@ -109,9 +163,14 @@ function registerMusicAipiAgent(server, clients) {
           };
         }
 
-        logger.debug('Extracted auth info:', { userId, tokenStart: accessToken.substring(0, 10) + '...' });
+        logger.debug('Auth info:', { 
+          userId, 
+          tokenStart: accessToken.substring(0, 10) + '...', 
+          expirationTime: new Date(parseInt(expirationTime)).toISOString() 
+        });
 
         // Start agent loop
+        logger.debug('Starting agent loop');
         const agentMessages = [
           {
             role: 'system',
@@ -202,6 +261,7 @@ TIPS:
 - again, when searching for similar/top items, vary which items you use to give variation to the results
 - again, don't analyze a playlist from its title. get the tracks and analyze them. and to fetch playlist tracks, you'll need the ID, which means a query to all the user's playlists
 - if the user wants a play session, you can either queue tracks or create a playlist and then queue that
+- don't return links to 'listen on Spotify' unless the user asks for that. you can just return linked resources, and suggest queueing or creating a playlist
 
 YOUR MAIN TASK IN THE FIRST TURN IS TO CREATE A PLAN ON HOW TO SATISFY THE USER REQUEST (unless the user is just chatting)
 COMPLETE YOUR GOAL. DO NOT RETURN PARTIAL RESULTS. e.g. A PLAYLIST MUST HAVE ALL 30+ SONGS ADDED
@@ -221,6 +281,7 @@ DON'T FORGET THE ACTUAL USER REQUEST
             content: m.content
           });
         });
+        logger.debug('Added history messages:', { historyLength: history.length });
 
         // Add current query with context
         agentMessages.push({
@@ -240,14 +301,25 @@ DON'T FORGET THE ACTUAL USER REQUEST
 
         while (!finalResponse && turn < maxTurns) {
           turn++;
-          logger.info(`Agent turn ${turn}/${maxTurns} using model ${currentModel} ${wasDefaultModel ? '(default)' : '(selected)'}`);
+          logger.info(`Starting turn ${turn}/${maxTurns} using model ${currentModel} ${wasDefaultModel ? '(default)' : '(selected)'}`);
 
           let llmResponse;
           try {
+            logger.debug('Calling OpenAI:', { 
+              model: currentModel, 
+              messageCount: agentMessages.length,
+              lastMessage: agentMessages[agentMessages.length - 1].content.substring(0, 100) + '...'
+            });
+            
             llmResponse = await getOpenAI().chat.completions.create({
               model: currentModel,
               messages: agentMessages,
               response_format: { type: "json_object" }
+            });
+            
+            logger.debug('OpenAI response:', {
+              usage: llmResponse.usage,
+              content: llmResponse.choices[0].message.content.substring(0, 100) + '...'
             });
           } catch (error) {
             logger.error('OpenAI API error:', error);
@@ -265,14 +337,30 @@ DON'T FORGET THE ACTUAL USER REQUEST
             content: llmResponse.choices[0].message.content
           });
 
-          const agentAction = JSON.parse(llmResponse.choices[0].message.content);
+          let agentAction;
+          try {
+            agentAction = JSON.parse(llmResponse.choices[0].message.content);
+            logger.debug('Parsed agent action:', { 
+              type: agentAction.type,
+              hasThinking: !!agentAction.thinking,
+              actionCount: agentAction.actions?.length,
+              nextModel: agentAction.next_model
+            });
+          } catch (error) {
+            logger.error('Failed to parse LLM response:', { 
+              error: error.message, 
+              content: llmResponse.choices[0].message.content 
+            });
+            throw error;
+          }
 
           // Update model for next turn if specified
           currentModel = agentAction.next_model || "gpt-4o";
           wasDefaultModel = !agentAction.next_model;
 
           if (agentAction.type === 'response') {
-            console.log('final response', agentAction);
+            logger.info('Got final response');
+            logger.debug('Final response content:', agentAction);
             finalResponse = {
               content: [{
                 type: 'text',
@@ -280,6 +368,12 @@ DON'T FORGET THE ACTUAL USER REQUEST
               }]
             };
           } else if (agentAction.type === 'actions') {
+            logger.debug('Processing actions:', { 
+              actionCount: agentAction.actions.length,
+              thinking: agentAction.thinking,
+              actions: agentAction.actions.map(a => ({ tool: a.tool, args: Object.keys(a.args) }))
+            });
+
             // Emit thinking event
             if (thinkingClient.isConnected()) {
               const thinkingMessage = {
@@ -289,32 +383,30 @@ DON'T FORGET THE ACTUAL USER REQUEST
                   text: agentAction.thinking || `working on ${agentAction.actions.length} actions`
                 }]
               };
+              logger.debug('Sending thinking message:', thinkingMessage);
               thinkingClient.send(thinkingMessage);
+            } else {
+              logger.warn('Thinking client not connected');
             }
 
             // Execute all actions in parallel
+            logger.debug('Starting parallel action execution');
             const actionResults = await Promise.all(
               agentAction.actions.map(async action => {
                 try {
+                  logger.debug(`Executing action: ${action.tool}`, { args: Object.keys(action.args) });
+                  
                   const tool = findTool(action.tool, normalizedTools);
                   if (!tool) {
-                    return {
+                    const error = {
                       error: true,
                       message: `Tool ${action.tool} not found`,
-                      availableTools: Object.entries(normalizedTools).map(([layer, tools]) => 
-                        tools.map(t => t.name)
-                      ).flat()
+                      availableTools: normalizedTools.tools.map(t => t.name)
                     };
+                    logger.warn('Tool not found:', error);
+                    return error;
                   }
-
-                  const client = clients[tool.layer];
-                  if (!client) {
-                    return {
-                      error: true, 
-                      message: `No client for ${tool.layer}`,
-                      availableLayers: Object.keys(clients)
-                    };
-                  }
+                  logger.debug(`Found tool: ${action.tool}`, { parameters: Object.keys(tool.parameters || {}) });
 
                   // Extract schema info
                   const toolSchema = tool.inputSchema || {};
@@ -332,6 +424,11 @@ DON'T FORGET THE ACTUAL USER REQUEST
                       };
                     });
                   }
+                  logger.debug('Tool schema info:', { 
+                    tool: action.tool,
+                    requiredFields,
+                    parameterCount: Object.keys(parameterDescriptions).length
+                  });
 
                   // Validate required parameters
                   const missingParams = requiredFields.filter(field => 
@@ -339,7 +436,7 @@ DON'T FORGET THE ACTUAL USER REQUEST
                   );
 
                   if (missingParams.length > 0) {
-                    return {
+                    const error = {
                       error: true,
                       message: `Missing required parameters: ${missingParams.join(', ')}`,
                       tool: action.tool,
@@ -347,6 +444,8 @@ DON'T FORGET THE ACTUAL USER REQUEST
                       providedArgs: action.args,
                       missingParams
                     };
+                    logger.warn('Missing parameters:', error);
+                    return error;
                   }
 
                   // Inject userId and accessToken if needed
@@ -358,12 +457,23 @@ DON'T FORGET THE ACTUAL USER REQUEST
                     ...(needsUserId && { userId }),
                     ...(needsToken && { accessToken })
                   };
+                  logger.debug('Prepared tool args:', { 
+                    tool: action.tool,
+                    argKeys: Object.keys(args),
+                    injectedUserId: needsUserId,
+                    injectedToken: needsToken
+                  });
 
                   // Call the tool
                   try {
-                    const result = await client.callTool({
+                    logger.debug(`Calling tool: ${action.tool}`);
+                    const result = await requestClient.callTool({
                       name: action.tool,
                       arguments: args
+                    });
+                    logger.debug(`Tool ${action.tool} result:`, { 
+                      success: true,
+                      resultKeys: Object.keys(result || {})
                     });
 
                     return {
@@ -372,7 +482,7 @@ DON'T FORGET THE ACTUAL USER REQUEST
                     };
                   } catch (error) {
                     // Return detailed error info for recovery
-                    return {
+                    const errorInfo = {
                       error: true,
                       message: error.message,
                       tool: action.tool,
@@ -381,6 +491,8 @@ DON'T FORGET THE ACTUAL USER REQUEST
                       errorType: error.name,
                       errorDetails: error.details || error.message
                     };
+                    logger.error('Tool execution error:', errorInfo);
+                    return errorInfo;
                   }
                 } catch (error) {
                   logger.error(`Error executing ${action.tool}:`, error);
@@ -393,18 +505,41 @@ DON'T FORGET THE ACTUAL USER REQUEST
               })
             );
 
+            // Check if any actions failed
+            const failedActions = actionResults.filter(result => result.error);
+            if (failedActions.length > 0) {
+              logger.warn('Some actions failed:', { 
+                failCount: failedActions.length,
+                failures: failedActions.map(f => ({ tool: f.tool, message: f.message }))
+              });
+            }
+
             // Add results to conversation with detailed error info
-            agentMessages.push({
+            const resultMessage = {
               role: 'system',
               content: `Action results:\n${JSON.stringify(actionResults, null, 1)}\n\nIf there were any errors, you can retry the actions with corrected parameters based on the error details provided.\n\nCurrent turn: ${turn}/${maxTurns}`
+            };
+            logger.debug('Adding result message to conversation', {
+              resultCount: actionResults.length,
+              messageLength: resultMessage.content.length
             });
+            agentMessages.push(resultMessage);
+          } else {
+            logger.warn('Unknown action type:', { type: agentAction.type, action: agentAction });
           }
         }
 
         // Clean up thinking client when done
         if (thinkingClients.has(sessionId)) {
+          logger.debug(`Cleaning up thinking client for session ${sessionId}`);
           thinkingClients.get(sessionId).close();
           thinkingClients.delete(sessionId);
+        }
+        ws.close();
+        logger.debug('Cleaned up request client');
+
+        if (!finalResponse) {
+          logger.warn('No final response after max turns', { maxTurns });
         }
 
         return finalResponse || {
@@ -417,8 +552,13 @@ DON'T FORGET THE ACTUAL USER REQUEST
       } catch (error) {
         // Clean up thinking client on error
         if (thinkingClients.has(sessionId)) {
+          logger.debug(`Cleaning up thinking client for session ${sessionId} after error`);
           thinkingClients.get(sessionId).close();
           thinkingClients.delete(sessionId);
+        }
+        if (ws) {
+          ws.close();
+          logger.debug('Cleaned up request client after error');
         }
 
         logger.error('Error in music-aipi-agent:', error);
@@ -439,57 +579,16 @@ DON'T FORGET THE ACTUAL USER REQUEST
  * Find a tool by name in the available tools
  */
 function findTool(toolName, tools) {
-  const layer1Tool = tools.layer1?.find(t => t.name === toolName);
-  if (layer1Tool) {
-    logger.debug('Found tool in layer1:', layer1Tool);
+  const tool = tools.tools?.find(t => t.name === toolName);
+  if (tool) {
+    logger.debug('Found tool:', tool);
     return { 
-      ...layer1Tool,
-      layer: 'layer1',
-      parameters: layer1Tool.parameters || {}
-    };
-  }
-  
-  const layer2Tool = tools.layer2?.find(t => t.name === toolName);
-  if (layer2Tool) {
-    logger.debug('Found tool in layer2:', layer2Tool);
-    return { 
-      ...layer2Tool,
-      layer: 'layer2',
-      parameters: layer2Tool.parameters || {}
+      ...tool,
+      parameters: tool.parameters || {}
     };
   }
   
   return null;
 }
 
-/**
- * Format tools for LLM consumption
- */
-function formatToolsForLLM(tools) {
-  let formatted = "Available tools:\n\n";
-  
-  // Combine and format all tools
-  const allTools = [
-    ...(tools.layer1 || []),
-    ...(tools.layer2 || []),
-    ...(tools.layer3 || [])
-  ];
-  
-  allTools.forEach(tool => {
-    formatted += `Tool: ${tool.name}\n`;
-    formatted += `Description: ${tool.description}\n`;
-    
-    if (tool.parameters) {
-      formatted += "Parameters:\n";
-      Object.entries(tool.parameters).forEach(([name, param]) => {
-        formatted += `  - ${name}: ${param.type}${param.optional ? ' (optional)' : ''}\n`;
-        if (param.description) formatted += `    Description: ${param.description}\n`;
-      });
-    }
-    formatted += "\n";
-  });
-  
-  return formatted;
-}
-
-export { registerMusicAipiAgent }; 
+export { registerMusicAgent }; 

@@ -2,7 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import session from 'express-session';
 import logger from './utils/logger.js';
-import AipiLayerClient from './mcp/AipiLayerClient.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { WebSocketClientTransport } from './utils/ws-transport.js';
 import spotifyClient from './utils/spotifyClient.js';
 import { ThinkingReceiveClient } from './utils/thinking-client.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -45,19 +46,20 @@ app.use(session({
 }));
 
 // Create MCP client
-const client = new AipiLayerClient({
+const client = new Client({
   name: 'web-client',
-  layerServers: {
-    layer3: {
-      port: 3003,
-      wsPort: 3013
-    }
+  version: '1.0.0'
+}, {
+  capabilities: {
+    prompts: {},
+    resources: {},
+    tools: {}
   },
-  requestTimeout: REQUEST_TIMEOUT // Add timeout configuration
+  requestTimeout: REQUEST_TIMEOUT
 });
 
-// Start client connections
-await client.start();
+// Track thinking clients
+const thinkingClients = new Map();
 
 // Spotify auth routes
 app.get('/auth/spotify', (req, res) => {
@@ -396,8 +398,8 @@ const server = app.listen(port, () => {
 server.on('upgrade', (request, socket, head) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
   
-  // Only handle WebSocket upgrades for /chat
-  if (url.pathname === '/chat') {
+  // Handle both chat and thinking WebSocket upgrades
+  if (url.pathname === '/chat' || url.pathname === '/thinking') {
     wsServer.handleUpgrade(request, socket, head, (ws) => {
       wsServer.emit('connection', ws, request);
     });
@@ -408,8 +410,6 @@ server.on('upgrade', (request, socket, head) => {
 
 // WebSocket connection handler
 wsServer.on('connection', async (ws, req) => {
-  let thinkingClient = null;
-  
   try {
     // Get auth from query params
     const params = new URL(req.url, 'ws://localhost').searchParams;
@@ -450,55 +450,93 @@ wsServer.on('connection', async (ws, req) => {
       return;
     }
 
-    // Create and connect thinking client
-    thinkingClient = new ThinkingReceiveClient();
-    
-    try {
-      await thinkingClient.connect(sessionId);
-    } catch (error) {
-      logger.error(`Failed to connect thinking client for session ${sessionId}:`, error);
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'error',
-          content: [{
-            type: 'text',
-            text: 'failed to connect to thinking service. please try again in a moment.'
-          }]
-        }));
-      }
-      ws.close();
-      return;
+    // Get or create thinking client for this session
+    let thinkingClient = thinkingClients.get(sessionId);
+    if (!thinkingClient) {
+      thinkingClient = new ThinkingReceiveClient();
+      thinkingClients.set(sessionId, thinkingClient);
     }
 
-    // Forward thinking messages to browser
-    thinkingClient.onMessage((message) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        logger.info(`Forwarding thinking message to browser for session ${sessionId}:`, message);
-        ws.send(JSON.stringify(message));
+    // Connect thinking client if needed
+    if (!thinkingClient.isConnected()) {
+      try {
+        await thinkingClient.connect(sessionId);
+        logger.info(`Connected thinking client for session ${sessionId}`);
+      } catch (error) {
+        logger.error(`Failed to connect thinking client for session ${sessionId}:`, error);
+        // Don't close the websocket - we can still handle messages without thinking updates
+        logger.warn(`Continuing without thinking client for session ${sessionId}`);
       }
-    });
+    }
+
+    // Forward thinking messages to browser if connected
+    if (thinkingClient.isConnected() && !thinkingClient.messageHandler) {
+      thinkingClient.onMessage((message) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          logger.info(`Forwarding thinking message to browser for session ${sessionId}:`, message);
+          ws.send(JSON.stringify(message));
+        }
+      });
+    }
 
     // Handle messages from browser
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
-        logger.info(`Received message from browser for session ${sessionId}:`, message);
+        logger.info(`Received chat message for session ${sessionId}`);
+        logger.debug('Message details:', {
+          hasQuery: !!message.query,
+          historyLength: message.conversationHistory ? JSON.parse(message.conversationHistory).length : 0
+        });
 
-        if (!client.isFullyConnected()) {
-          ws.send(JSON.stringify({
-            content: [{
-              type: "text",
-              text: "service is starting up, please try again in a moment..."
-            }],
-            isError: true,
-            unready: true
-          }));
-          return;
+        // Try to reconnect thinking client if disconnected
+        if (thinkingClient && !thinkingClient.isConnected()) {
+          try {
+            await thinkingClient.connect(sessionId);
+            logger.info(`Reconnected thinking client for session ${sessionId}`);
+          } catch (error) {
+            logger.warn(`Failed to reconnect thinking client for session ${sessionId}:`, error);
+          }
         }
 
-        // Call the music-aipi-agent
-        const result = await client.callTool({
-          name: 'music-aipi-agent',
+        // Create new client for this request
+        const requestClient = new Client({
+          name: 'web-request-client',
+          version: '1.0.0'
+        }, {
+          capabilities: {
+            prompts: {},
+            resources: {},
+            tools: {}
+          },
+          requestTimeout: REQUEST_TIMEOUT
+        });
+
+        // Create new connection for this request
+        const mcpWs = new WebSocket(`ws://localhost:3100`);
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Connection timeout'));
+          }, 5000);
+
+          mcpWs.once('open', () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+
+          mcpWs.once('error', (err) => {
+            clearTimeout(timeout);
+            reject(err);
+          });
+        });
+
+        const transport = new WebSocketClientTransport(mcpWs);
+        await transport.start();
+        await requestClient.connect(transport);
+
+        // Call the music-agent
+        const result = await requestClient.callTool({
+          name: 'music-agent',
           arguments: {
             query: message.query,
             spotifyAuth: `Bearer ${userId}:${accessToken}:${refreshToken}:${expirationTime}`,
@@ -506,6 +544,9 @@ wsServer.on('connection', async (ws, req) => {
             sessionId
           }
         });
+
+        // Clean up connection
+        mcpWs.close();
 
         // Send final response
         if (ws.readyState === WebSocket.OPEN) {
@@ -528,46 +569,33 @@ wsServer.on('connection', async (ws, req) => {
     // Handle client disconnect
     ws.on('close', () => {
       logger.info(`Browser WebSocket closed for session ${sessionId}`);
-      if (thinkingClient) {
-        thinkingClient.close();
-      }
+      // Don't close thinking client immediately - might be temporary disconnect
+      // Let it be cleaned up by the cleanup interval
     });
 
   } catch (error) {
     logger.error('Error in WebSocket connection:', error);
-    if (thinkingClient) {
-      thinkingClient.close();
-    }
     ws.close();
   }
 });
 
-// Get available tools
-app.get('/api/tools', async (req, res) => {
-  try {
-    const tools = client.getAllTools();
-    res.json(tools);
-  } catch (error) {
-    logger.error('Error fetching tools:', error);
-    res.status(500).json({ error: 'Failed to fetch tools' });
+// Cleanup disconnected thinking clients periodically
+setInterval(() => {
+  for (const [sessionId, thinkingClient] of thinkingClients.entries()) {
+    if (!thinkingClient.isConnected()) {
+      logger.info(`Cleaning up disconnected thinking client for session ${sessionId}`);
+      thinkingClient.close();
+      thinkingClients.delete(sessionId);
+    }
   }
-});
-
-// Get connection status
-app.get('/api/status', (req, res) => {
-  const status = {
-    connections: client.getConnectionStatus(),
-    ready: client.isFullyConnected()
-  };
-  res.json(status);
-});
+}, 60000); // Clean up every minute
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  const isReady = client.isFullyConnected();
   res.json({
-    status: isReady ? 'ok' : 'starting',
-    ready: isReady
+    status: 'ok',
+    ready: true,
+    thinkingSessions: thinkingClients.size
   });
 });
 
