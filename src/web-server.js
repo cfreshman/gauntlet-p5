@@ -3,7 +3,7 @@ import cors from 'cors';
 import session from 'express-session';
 import logger from './utils/logger.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { WebSocketClientTransport } from './utils/ws-transport.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import spotifyClient from './utils/spotifyClient.js';
 import { ThinkingReceiveClient } from './utils/thinking-client.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -63,7 +63,6 @@ const thinkingClients = new Map();
 
 // AIPI client management
 let aipiClient = null;
-let aipiWs = null;
 let aipiConnected = false;
 const maxRetries = 3;
 
@@ -73,10 +72,6 @@ async function getAipiClient() {
   }
 
   // Clean up any existing connection
-  if (aipiWs) {
-    aipiWs.close();
-    aipiWs = null;
-  }
   if (aipiClient) {
     aipiClient = null;
   }
@@ -98,51 +93,13 @@ async function getAipiClient() {
   let retryCount = 0;
   while (!aipiConnected && retryCount < maxRetries) {
     try {
-      aipiWs = new WebSocket(`ws://localhost:5907`);
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Connection timeout'));
-        }, 5000);
-
-        aipiWs.once('open', () => {
-          clearTimeout(timeout);
-          aipiConnected = true;
-          resolve();
-        });
-
-        aipiWs.once('error', (err) => {
-          clearTimeout(timeout);
-          reject(err);
-        });
-
-        aipiWs.once('close', () => {
-          aipiConnected = false;
-          if (!aipiConnected) {
-            reject(new Error('Connection closed'));
-          }
-        });
-      });
-
-      const transport = new WebSocketClientTransport(aipiWs);
-      await transport.start();
+      const transport = new SSEClientTransport(new URL('http://localhost:5907/sse'));
       await aipiClient.connect(transport);
-
-      // Set up reconnection handler
-      aipiWs.on('close', async () => {
-        logger.warn('AIPI connection closed, will reconnect on next request');
-        aipiConnected = false;
-        aipiWs = null;
-        aipiClient = null;
-      });
-
+      aipiConnected = true;
       return aipiClient;
     } catch (error) {
       retryCount++;
       logger.warn(`AIPI connection attempt ${retryCount} failed:`, error);
-      if (aipiWs) {
-        aipiWs.close();
-        aipiWs = null;
-      }
       if (retryCount < maxRetries) {
         const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 5000);
         logger.info(`Retrying AIPI connection in ${delay}ms...`);

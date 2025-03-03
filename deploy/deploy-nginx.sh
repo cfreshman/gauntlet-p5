@@ -43,6 +43,36 @@ server {
     root /opt/music-aipi/web-client/dist;
     index index.html;
 
+    # SSE endpoint
+    location /sse {
+        proxy_pass http://localhost:5907;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        
+        # SSE requires specific headers
+        proxy_set_header Connection '';
+        proxy_set_header Cache-Control no-cache;
+        chunked_transfer_encoding off;
+    }
+
+    # Messages endpoint
+    location /messages {
+        proxy_pass http://localhost:5907;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+    }
+
     # Auth routes
     location /auth {
         proxy_pass http://localhost:3000;

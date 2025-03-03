@@ -10,9 +10,6 @@ import { OpenAI } from 'openai';
 import { z } from 'zod';
 import toolFormatter from '../utils/tool-formatter.js';
 import { ThinkingSendClient } from '../utils/thinking-client.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { WebSocketClientTransport } from '../utils/ws-transport.js';
-import WebSocket from 'ws';
 
 // Lazy OpenAI client initialization
 let openai = null;
@@ -257,6 +254,7 @@ TIPS:
 - DO NOT BE LAZY. it's okay to take multiple steps through getting tracks then top tags then searching then filtering, etc
 - use your 'internal' final output field strategically. for example, if you just fetched their currently playing playlist or track, you could pass the data through your internal state
 - if the user asks you to shuffle play a playlist, make sure you start at a random offset, then unshuffle/shuffle the playlist to start an entire new shuffled playback starting from a random song
+- if the user ONLY says 'create a playlist' without past context, you'll need to prompt for what they want in it. don't just create something without asking them
 
 YOUR MAIN TASK IN THE FIRST TURN IS TO CREATE A PLAN ON HOW TO SATISFY THE USER REQUEST (unless the user is just chatting)
 COMPLETE YOUR GOAL. DO NOT RETURN PARTIAL RESULTS. e.g. A PLAYLIST MUST HAVE ALL 30+ SONGS ADDED

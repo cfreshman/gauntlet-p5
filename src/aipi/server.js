@@ -1,9 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { WebSocketServerTransport, WebSocketClientTransport } from '../utils/ws-transport.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import express from 'express';
-import { WebSocketServer } from 'ws';
-import WebSocket from 'ws';
 import cors from 'cors';
 import logger from '../utils/logger.js';
 import swaggerUi from 'swagger-ui-express';
@@ -37,33 +36,14 @@ const openApiSpec = {
   paths: {}
 };
 
+// Store active connections
+const connections = new Map();
+
 async function startServer() {
-  // Setup HTTP/WS server
   const app = express();
   app.use(cors());
-  app.use(express.json());
 
-  // Add health check endpoint
-  app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
-  });
-
-  // Create promise to wait for server to be ready
-  const serverReady = new Promise((resolve, reject) => {
-    const httpServer = app.listen(PORT, () => {
-      logger.info(`music-aipi-server listening on port ${PORT}`);
-      resolve(httpServer);
-    });
-    httpServer.on('error', reject);
-  });
-
-  // Wait for server to be ready
-  const httpServer = await serverReady;
-
-  // Setup WebSocket server
-  const wss = new WebSocketServer({ server: httpServer });
-
-  // Create reflective client instance (but don't connect yet)
+  // Create reflective client instance but don't connect yet
   const reflectiveClient = new Client({
     name: 'music-aipi-reflective-client',
     version: '1.0.0'
@@ -76,15 +56,31 @@ async function startServer() {
     requestTimeout: REQUEST_TIMEOUT
   });
 
-  // Handle external client connections
-  wss.on('connection', async (ws) => {
-    logger.info('New client connection received');
+  // Add health check endpoint
+  app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+  });
+
+  let httpServer;
+  await new Promise((resolve, reject) => {
+    httpServer = app.listen(PORT, () => {
+      logger.info(`MCP server listening on port ${PORT}`);
+      resolve();
+    });
+  });
+
+  const reflectiveTransport = new SSEClientTransport(new URL(`http://localhost:${PORT}/sse`));
+
+  // Handle SSE connections
+  app.get('/sse', async (req, res) => {
+    logger.info('New SSE connection received');
     
-    // Create new transport for this connection
-    const transport = new WebSocketServerTransport(ws);
-    await transport.start();
+    // Create unique messages endpoint for this connection
+    const connectionId = Math.random().toString(36).slice(2);
+    const messagesPath = `/messages/${connectionId}`;
     
     // Create new server instance for this connection
+    logger.info('Creating MCP instance for connection...');
     const server = new McpServer({
       name: 'music-aipi-server',
       version: '1.0.0'
@@ -97,48 +93,86 @@ async function startServer() {
       requestTimeout: REQUEST_TIMEOUT
     });
 
-    // Register tools for this connection
-    logger.info('Registering Layer 1 tools...');
     layer1Tools.register(server, { client: reflectiveClient });
-
-    logger.info('Registering Layer 2 tools...');
     layer2Tools.register(server, { client: reflectiveClient });
-
-    logger.info('Registering Layer 3 tools...');
     layer3Tools.register(server, { client: reflectiveClient });
+
+    // Create new transport for this connection
+    const transport = new SSEServerTransport(messagesPath, res);
+
+    // Store connection info
+    connections.set(connectionId, { server, transport });
 
     // Connect transport to server instance
     await server.connect(transport);
     logger.info('Client connected successfully');
 
-    // Clean up when connection closes
-    ws.on('close', () => {
-      logger.info('Client disconnected, cleaning up');
-      transport.close();
-    });
+    // Handle cleanup on close
+    transport.onclose = () => {
+      logger.info(`Client ${connectionId} disconnected, cleaning up`);
+      connections.delete(connectionId);
+    };
   });
 
-  // Now connect the reflective client after handler is set up
-  const reflectiveWs = new WebSocket(`ws://localhost:${PORT}`);
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error('Connection timeout'));
-    }, 5000);
+  // Handle client messages
+  app.post('/messages/:id', (req, res) => {
+    logger.info('Received message from client');
+    const connectionId = req.params.id;
+    const connection = connections.get(connectionId);
+    
+    if (!connection) {
+      return res.status(400).json({ error: 'No active SSE connection found' });
+    }
 
-    reflectiveWs.once('open', () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-
-    reflectiveWs.once('error', (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
+    try {
+      connection.transport.handlePostMessage(req, res);
+    } catch (error) {
+      logger.error('Error handling POST message:', error);
+      return res.status(500).json({ error: 'Failed to handle POST message' });
+    }
   });
 
-  const reflectiveTransport = new WebSocketClientTransport(reflectiveWs);
-  await reflectiveTransport.start();
-  await reflectiveClient.connect(reflectiveTransport);
+  // Tool execution endpoint - needs JSON
+  app.post('/tools/:toolName', express.json(), async (req, res) => {
+    const { toolName } = req.params;
+    const args = req.body;
+
+    try {
+      logger.info(`HTTP tool call: ${toolName}`, { args });
+
+      // Find the tool
+      const tool = registeredTools.find(t => t.name === toolName);
+      if (!tool) {
+        logger.warn(`Tool ${toolName} not found`);
+        return res.status(404).json({
+          error: true,
+          message: `Tool ${toolName} not found`
+        });
+      }
+
+      // Execute the tool
+      const result = await tool.handler(args);
+      
+      // Parse the content text as JSON if possible
+      if (result.content?.[0]?.type === 'text') {
+        try {
+          const parsed = JSON.parse(result.content[0].text);
+          return res.json(parsed);
+        } catch (e) {
+          // If not JSON, return the text as is
+          return res.json(result.content[0]);
+        }
+      }
+
+      return res.json(result);
+    } catch (error) {
+      logger.error(`Error executing tool ${toolName}:`, error);
+      return res.status(400).json({
+        error: true,
+        message: error.message
+      });
+    }
+  });
 
   // Create MCP server instance for HTTP tool calls
   const httpToolServer = new McpServer({
@@ -182,58 +216,19 @@ async function startServer() {
     res.send(openApiSpec);
   });
 
-  // Tool execution endpoint
-  app.post('/tools/:toolName', async (req, res) => {
-    const { toolName } = req.params;
-    const args = req.body;
-
-    try {
-      logger.info(`HTTP tool call: ${toolName}`, { args });
-
-      // Find the tool
-      const tool = registeredTools.find(t => t.name === toolName);
-      if (!tool) {
-        logger.warn(`Tool ${toolName} not found`);
-        return res.status(404).json({
-          error: true,
-          message: `Tool ${toolName} not found`
-        });
-      }
-
-      // Execute the tool
-      const result = await tool.handler(args);
-      
-      // Parse the content text as JSON if possible
-      if (result.content?.[0]?.type === 'text') {
-        try {
-          const parsed = JSON.parse(result.content[0].text);
-          return res.json(parsed);
-        } catch (e) {
-          // If not JSON, return the text as is
-          return res.json(result.content[0]);
-        }
-      }
-
-      return res.json(result);
-    } catch (error) {
-      logger.error(`Error executing tool ${toolName}:`, error);
-      return res.status(400).json({
-        error: true,
-        message: error.message
-      });
-    }
-  });
+  // Now that server is set up, connect the reflective client
+  await reflectiveClient.connect(reflectiveTransport);
+  logger.info('Reflective client connected successfully');
 
   // Handle process termination
   process.on('SIGINT', () => {
     logger.info('Shutting down server...');
-    reflectiveWs.close();
     reflectiveTransport.close();
     httpServer.close();
     process.exit(0);
   });
 
-  return { httpServer, wss, reflectiveClient };
+  return { httpServer, server: httpToolServer, reflectiveClient };
 }
 
 export { startServer }; 
