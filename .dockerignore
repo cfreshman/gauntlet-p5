@@ -1,0 +1,43 @@
+# Dependencies
+node_modules
+web-client/node_modules
+
+# Environment
+.env
+.env.*
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Build outputs
+web-client/dist
+web-client/build
+
+# IDE and OS files
+.idea
+.vscode
+.DS_Store
+*.swp
+*.swo
+
+# Git
+.git
+.gitignore
+
+# Test files
+coverage
+*.test.js
+__tests__
+__mocks__
+
+# Documentation
+*.md
+!README.md
+
+# Cache
+.npm
+.eslintcache
+.cache
+.parcel-cache 

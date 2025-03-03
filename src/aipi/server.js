@@ -30,8 +30,8 @@ const openApiSpec = {
   },
   servers: [
     {
-      url: `http://localhost:${PORT}`,
-      description: 'Local development server'
+      url: process.env.NODE_ENV === 'production' ? 'https://music-aipi.com' : `http://localhost:${PORT}`,
+      description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Local development server'
     }
   ],
   paths: {}

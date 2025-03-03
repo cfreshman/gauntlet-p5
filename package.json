@@ -5,20 +5,19 @@
   "description": "An intelligent music discovery assistant powered by AI, Spotify, and Last.fm",
   "main": "src/index.js",
   "scripts": {
-    "start": "node --no-deprecation src/index.js",
-    "dev": "nodemon --no-deprecation src/index.js",
-    "test": "jest --no-deprecation",
-    "test:unit": "jest --no-deprecation src/tests/unit",
-    "test:integration": "jest --no-deprecation src/tests/integration",
-    "lint": "eslint src/**/*.js",
     "mcp": "node --no-deprecation src/aipi/run.js",
     "web:dev": "cd web-client && npm run dev",
     "web:build": "cd web-client && npm run build",
     "web:serve": "cd web-client && npm run serve",
     "web:install": "cd web-client && npm install",
     "web:server": "node --no-deprecation src/web-server.js",
-    "web:with-mcp": "node --no-deprecation -e \"require('child_process').spawn('node', ['--no-deprecation', 'src/thinking-server.js'], {stdio: 'inherit'}); setTimeout(() => require('child_process').spawn('node', ['--no-deprecation', 'src/aipi/run.js'], {stdio: 'inherit'}), 2000); setTimeout(() => require('child_process').spawn('node', ['--no-deprecation', 'src/web-server.js'], {stdio: 'inherit'}), 7000);\"",
-    "thinking:server": "node --no-deprecation src/thinking-server.js"
+    "web:with-mcp": "node --no-deprecation src/run-services.js",
+    "thinking:server": "node --no-deprecation src/thinking-server.js",
+    "deploy:setup": "./deploy/setup-server.sh",
+    "deploy:ssl": "./deploy/setup-ssl.sh",
+    "deploy:nginx": "./deploy/deploy-nginx.sh",
+    "deploy": "./deploy/deploy.sh",
+    "logs": "./deploy/logs.sh"
   },
   "keywords": [
     "AI",

@@ -85,7 +85,8 @@ export const AppProvider = ({ children }) => {
 
     // Get existing session ID if any
     const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
-    const wsUrl = `ws://localhost:3000/chat?auth=${encodeURIComponent(authString)}${sessionId ? `&sessionId=${sessionId}` : ''}`;
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.port === '3004' ? 'localhost:3000' : window.location.host}/chat?auth=${encodeURIComponent(authString)}${sessionId ? `&sessionId=${sessionId}` : ''}`;
+    console.log('WebSocket URL:', wsUrl);
     wsRef.current = new WebSocket(wsUrl);
 
     wsRef.current.onopen = () => {

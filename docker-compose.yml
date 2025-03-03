@@ -1,0 +1,13 @@
+services:
+  music-aipi:
+    build: 
+      context: .
+    ports:
+      - "3000:3000"  # Web server
+      - "3014:3014"  # Thinking server
+      - "5907:5907"  # MCP server
+    env_file:
+      - .env.production
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped

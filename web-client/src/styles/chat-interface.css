@@ -16,6 +16,7 @@
   padding: var(--space-sm);
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: var(--space-sm);
   height: 0;
   flex-grow: 1;
@@ -37,6 +38,7 @@
   font-family: 'Roboto Mono', monospace;
   font-size: 12px;
   opacity: 0.8;
+  text-align: center;
 }
 
 .message {
