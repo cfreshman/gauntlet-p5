@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 const AUTH_STORAGE_KEY = 'music-aipi-auth';
+const REFRESH_BUFFER = 5 * 60 * 1000; // 5 minutes before expiration
 
 export const useSpotifyApi = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -9,6 +10,39 @@ export const useSpotifyApi = () => {
     const { expirationTime } = JSON.parse(auth);
     return Date.now() < expirationTime;
   });
+  const refreshTimerRef = useRef(null);
+
+  // Set up refresh timer
+  useEffect(() => {
+    const checkAndRefreshToken = async () => {
+      const auth = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (!auth) return;
+
+      const { refreshToken, expirationTime } = JSON.parse(auth);
+      const timeUntilExpiry = expirationTime - Date.now();
+
+      // If token expires in less than our buffer, refresh it
+      if (timeUntilExpiry < REFRESH_BUFFER) {
+        console.log('Token expiring soon, refreshing...');
+        await refreshTokens(refreshToken);
+      }
+
+      // Schedule next check
+      const nextCheck = Math.max(timeUntilExpiry - REFRESH_BUFFER, 1000);
+      refreshTimerRef.current = setTimeout(checkAndRefreshToken, nextCheck);
+    };
+
+    // Start checking if authenticated
+    if (isAuthenticated) {
+      checkAndRefreshToken();
+    }
+
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, [isAuthenticated]);
 
   const refreshTokens = useCallback(async (refreshToken) => {
     try {

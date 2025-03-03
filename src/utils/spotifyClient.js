@@ -55,7 +55,6 @@ class SpotifyClient {
     const scopes = [
       // Users
       'user-read-private',
-      'user-read-email',
       
       // Spotify Connect
       'user-read-playback-state',
@@ -79,10 +78,6 @@ class SpotifyClient {
       // Library
       'user-library-modify',
       'user-library-read',
-      
-      // Follow
-      'user-follow-modify',
-      'user-follow-read'
     ];
     
     // Construct the authorization URL

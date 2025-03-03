@@ -252,6 +252,7 @@ TIPS:
 - one possible path for suggesting a good playlist from a different one is to get the tracks, get their top tags, search for similar tags to those tags, and search for playlists with those tags
 - DO NOT BE LAZY. it's okay to take multiple steps through getting tracks then top tags then searching then filtering, etc
 - use your 'internal' final output field strategically. for example, if you just fetched their currently playing playlist or track, you could pass the data through your internal state
+- if the user asks you to shuffle play a playlist, make sure you start at a random offset, then unshuffle/shuffle the playlist to start an entire new shuffled playback starting from a random song
 
 YOUR MAIN TASK IN THE FIRST TURN IS TO CREATE A PLAN ON HOW TO SATISFY THE USER REQUEST (unless the user is just chatting)
 COMPLETE YOUR GOAL. DO NOT RETURN PARTIAL RESULTS. e.g. A PLAYLIST MUST HAVE ALL 30+ SONGS ADDED
