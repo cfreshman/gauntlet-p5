@@ -49,9 +49,10 @@ function registerMusicAgent(server, { client }) {
       query: z.string().describe('The user query to process'),
       spotifyAuth: z.string().optional().describe('Spotify Bearer header value like "Bearer userId:accessToken:refreshToken:expirationTime"'),
       conversationHistory: z.string().optional().describe('JSON string of conversation history from the front end'),
-      sessionId: z.string().describe('Session ID for thinking events')
+      sessionId: z.string().describe('Session ID for thinking events'),
+      lens: z.string().optional().describe('User-defined preferences and guidelines for music discovery and recommendations')
     },
-    async ({ query, spotifyAuth = '', conversationHistory = '', sessionId }) => {
+    async ({ query, spotifyAuth = '', conversationHistory = '', sessionId, lens = '' }) => {
       try {
         logger.info(`Starting agent for session ${sessionId} with query: ${query}`);
 
@@ -147,6 +148,9 @@ function registerMusicAgent(server, { client }) {
             content: `you are music-AIPI. you are the user's personal music sommelier
 
 be consise
+
+USER LENS:
+${lens ? `the user has provided the following preferences and guidelines that you MUST follow:\n${lens}\n` : 'no lens provided'}
 
 TOOLS AND ACTIONS AND FINAL RESPONSE:
 - you have access to multiple layers of tools. Spotify, Last.fm, and others

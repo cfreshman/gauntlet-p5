@@ -650,7 +650,8 @@ wsServer.on('connection', async (ws, req) => {
             query: message.query,
             spotifyAuth: `Bearer ${userId}:${accessToken}:${refreshToken}:${expirationTime}`,
             conversationHistory: message.conversationHistory || '',
-            sessionId
+            sessionId,
+            lens: message.lens || ''
           }
         }, undefined, { timeout: REQUEST_TIMEOUT });
 

@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 const STORAGE_KEY = 'music-aipi-chat-history';
 const AUTH_STORAGE_KEY = 'music-aipi-auth';
 const SESSION_STORAGE_KEY = 'music-aipi-session';
+const LENS_STORAGE_KEY = 'music-aipi-lens';
 
 const AppContext = createContext(null);
 
@@ -12,6 +13,10 @@ export const AppProvider = ({ children }) => {
   const [messages, setMessages] = useState(() => {
     const savedMessages = localStorage.getItem(STORAGE_KEY);
     return savedMessages ? JSON.parse(savedMessages) : [];
+  });
+  const [lens, setLens] = useState(() => {
+    const savedLens = localStorage.getItem(LENS_STORAGE_KEY);
+    return savedLens || '';
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -23,6 +28,11 @@ export const AppProvider = ({ children }) => {
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 1000;
   const RECONNECT_INTERVAL = 5000;
+
+  // Save lens to localStorage
+  useEffect(() => {
+    localStorage.setItem(LENS_STORAGE_KEY, lens);
+  }, [lens]);
 
   // Initialize WebSocket connection when auth changes
   useEffect(() => {
@@ -203,7 +213,8 @@ export const AppProvider = ({ children }) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
           query: message,
-          conversationHistory: JSON.stringify(messages)
+          conversationHistory: JSON.stringify(messages),
+          lens
         }));
       } else {
         throw new Error('WebSocket not connected');
@@ -237,10 +248,12 @@ export const AppProvider = ({ children }) => {
     isConnected,
     isAuthenticated,
     userId,
+    lens,
+    setLens,
     setIsAuthenticated,
     sendMessage,
     clearHistory,
-    logout: handleLogout // Use wrapped logout that clears session
+    logout: handleLogout
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -1,0 +1,150 @@
+.lens-editor {
+  position: fixed;
+  top: var(--space-md);
+  left: var(--space-md);
+  right: var(--space-md);
+  bottom: var(--space-md);
+  transform: none;
+  width: auto;
+  max-width: none;
+  background: var(--secondary-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.lens-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.lens-editor-header h2 {
+  font-size: 14px;
+  font-weight: normal;
+  margin: 0;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.close-button {
+  color: var(--text-color);
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.examples-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-color);
+  opacity: 0.6;
+  font-size: 10px;
+  font-family: 'Roboto Mono', monospace;
+  padding: 0;
+  transition: all 0.2s ease;
+}
+
+.examples-toggle:hover {
+  opacity: 1;
+}
+
+.examples-toggle svg {
+  transition: transform 0.2s ease;
+}
+
+.examples-toggle.open svg {
+  transform: rotate(90deg);
+}
+
+.lens-description {
+  font-size: 10px;
+  color: var(--text-color);
+  opacity: 0.6;
+  margin: 0;
+  font-style: italic;
+}
+
+.lens-examples {
+  list-style: none;
+  padding: 0 0 0 var(--space-md);
+  margin: 0;
+  font-size: 10px;
+  color: var(--text-color);
+  opacity: 0.6;
+}
+
+.lens-examples li {
+  margin-bottom: var(--space-xs);
+  font-style: italic;
+}
+
+.lens-examples li:before {
+  content: '';
+}
+
+.lens-input {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  color: var(--text-color);
+  font-family: 'Roboto Mono', monospace;
+  font-size: 12px;
+  width: 100%;
+  resize: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.lens-input:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+@media (max-width: 480px) {
+  .lens-input {
+    font-size: 16px;
+  }
+
+  .lens-editor {
+    height: 60vh;
+    top: 50%;
+    transform: translateY(-50%);
+    bottom: auto;
+  }
+}
+
+.lens-editor-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.save-button {
+  background: var(--accent-color);
+  color: var(--text-color);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-family: 'Roboto Mono', monospace;
+  transition: opacity 0.2s ease;
+}
+
+.save-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.save-button:not(:disabled):hover {
+  opacity: 0.8;
+} 
